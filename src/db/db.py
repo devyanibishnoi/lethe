@@ -87,3 +87,23 @@ def get_document(document_id, tenant_id):
 
     finally:
         conn.close()
+
+
+def get_documents_by_subject(subject_id):
+    conn = get_connection()
+
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, tenant_id
+                FROM documents
+                WHERE subject_id = %s
+                ORDER BY id
+                """,
+                (subject_id,),
+            )
+
+            return cur.fetchall()
+    finally:
+        conn.close()

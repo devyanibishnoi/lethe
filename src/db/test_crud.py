@@ -1,4 +1,4 @@
-from db import insert_subject, insert_document, get_document
+from db import insert_subject, insert_document, get_document, get_documents_by_subject
 
 TENANT_ID = "00000000-0000-0000-0000-000000000001"
 
@@ -19,3 +19,7 @@ document = get_document(document_id, TENANT_ID)
 
 print("Fetched document:")
 print(document)
+
+documents = get_documents_by_subject(subject_id)
+
+assert len(documents) >= 1
