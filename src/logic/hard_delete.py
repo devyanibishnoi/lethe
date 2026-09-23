@@ -1,4 +1,5 @@
 from src.db.db import get_connection, get_document
+from src.logic.sign_deletion import sign_deletion, save_audit_log
 
 TENANT_CONFIG = {
     "00000000-0000-0000-0000-000000000001": {
@@ -12,7 +13,7 @@ TENANT_CONFIG = {
 }
 
 
-def hard_delete(document_id, tenant_id):
+def hard_delete(document_id, tenant_id, deletion_request_id):
     tenant_id = str(tenant_id)
 
     if tenant_id not in TENANT_CONFIG:
@@ -31,6 +32,18 @@ def hard_delete(document_id, tenant_id):
             raise ValueError(
                 f"Document {document_id} not found for tenant {tenant_id}"
             )
+
+        signing_data = sign_deletion(
+                document[3],
+                document_id,
+            )
+
+        save_audit_log(
+            conn,
+            deletion_request_id,
+            document_id,
+            signing_data,
+        )
 
         with conn.cursor() as cur:
             delete_query = f"""

@@ -1,4 +1,9 @@
-from src.db.db import insert_subject, insert_document, get_document
+from src.db.db import (
+    insert_subject,
+    insert_document,
+    get_document,
+    get_connection,
+)
 from src.logic.hard_delete import hard_delete
 
 
@@ -7,6 +12,32 @@ embedding = [0.01] * 384
 
 subject_id = insert_subject("Hard Delete Test Subject", TENANT_ID)
 print("Created subject:", subject_id)
+
+
+
+conn = get_connection()
+
+try:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO deletion_requests (subject_id)
+            VALUES (%s)
+            RETURNING id;
+            """,
+            (subject_id,),
+        )
+
+        deletion_request_id = cur.fetchone()[0]
+
+    conn.commit()
+
+finally:
+    conn.close()
+
+print("Created deletion request:", deletion_request_id)
+
+
 
 document_id = insert_document(
     subject_id,
@@ -26,7 +57,11 @@ if document_before is None:
     raise RuntimeError("Document was not created correctly.")
 
 
-hard_delete(document_id, TENANT_ID)
+hard_delete(
+    document_id,
+    TENANT_ID,
+    deletion_request_id,
+)
 print("\nHard delete completed.")
 
 document_after = get_document(document_id, TENANT_ID)
