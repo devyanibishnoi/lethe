@@ -73,3 +73,4 @@ Full instructions, with every command and code snippet, are in [`docs/CHECKLIST.
 1. Install Docker, spin up Postgres + pgvector with the provided `docker-compose.yml`.
 2. Set up a Python virtual environment and install the requirements listed in the checklist.
 3. Run the schema, then each person builds their track: schema, core logic, evaluation, or the dashboard.
+4. Generate your own local signing keypair once (`python -m src.logic.generate_keys`), required before running anything that calls hard-delete. Keys are per-machine and gitignored, never shared or committed.
