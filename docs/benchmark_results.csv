@@ -1,0 +1,8 @@
+run_timestamp,metric,value,unit,corpus_size,k,notes
+2026-09-26T05:12:15.606885+00:00,hard_delete_latency,64.75020002108067,ms,6,,
+2026-09-26T05:12:22.088268+00:00,cascading_erasure_latency,4765.756200067699,ms,50,,documents_deleted=50
+2026-09-26T05:12:25.448003+00:00,index_rebuild_cost,10.716899996623397,ms,100,,
+2026-09-26T05:12:41.336725+00:00,index_rebuild_cost,92.04780007712543,ms,500,,
+2026-09-26T05:13:02.554951+00:00,index_rebuild_cost,108.36050007492304,ms,1000,,
+2026-09-26T05:16:38.247612+00:00,index_rebuild_cost,870.8902000216767,ms,5000,,
+2026-09-26T05:16:58.595733+00:00,recall_at_k,0.995,fraction,4980,10,"num_queries=20, num_deleted=20"
