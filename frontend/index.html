@@ -5,8 +5,16 @@
 <title>Lethe — Certified Forgetting</title>
 <link rel="stylesheet" href="style.css" />
 <style>
+  html {
+    scroll-behavior: smooth;
+  }
+
   body {
     display: block;
+  }
+
+  #how-it-works {
+    scroll-margin-top: 2rem;
   }
 
   .landing-bar {
@@ -153,6 +161,44 @@
     line-height: 1.5;
   }
 
+  .stat-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    margin-bottom: 5rem;
+  }
+
+  .stat-tile {
+    background: var(--panel);
+    padding: 1.5rem 1.6rem;
+  }
+
+  .stat-value {
+    font-family: var(--font-body);
+    font-weight: 600;
+    font-size: 2.1rem;
+    color: var(--text);
+    line-height: 1.1;
+  }
+
+  .stat-value .stat-unit {
+    font-size: 1.15rem;
+    color: var(--text-dim);
+    font-weight: 500;
+    margin-left: 0.15rem;
+  }
+
+  .stat-label {
+    font-size: 0.82rem;
+    color: var(--text-dim);
+    margin-top: 0.5rem;
+    line-height: 1.4;
+  }
+
   .stack-line {
     font-family: var(--font-mono);
     font-size: 0.8rem;
@@ -183,6 +229,21 @@
   <div class="cta-row">
     <button onclick="window.location.href='overview.html'">Enter the live system</button>
     <button class="secondary" onclick="window.location.href='#how-it-works'">How it works ↓</button>
+  </div>
+
+  <div class="stat-row">
+    <div class="stat-tile">
+      <div class="stat-value">72<span class="stat-unit">ms</span></div>
+      <div class="stat-label">Single hard-delete latency</div>
+    </div>
+    <div class="stat-tile">
+      <div class="stat-value">99.5<span class="stat-unit">%</span></div>
+      <div class="stat-label">Recall@10 retained after deletion</div>
+    </div>
+    <div class="stat-tile">
+      <div class="stat-value">309<span class="stat-unit">ms</span></div>
+      <div class="stat-label">Partition rebuild at 5,000 documents</div>
+    </div>
   </div>
 
   <section>

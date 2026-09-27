@@ -41,7 +41,11 @@
 </main>
 <script src="app.js"></script>
 <script>
-const CHART_COLORS = ["#c9a668", "#6fbf8e", "#d1705f", "#7c8394"];
+// Distinct from the status green/red used for verify pass/fail elsewhere in the
+// app (a colored chart series must never impersonate a status token). Validated
+// with scripts/validate_palette.js against this app's dark panel surface
+// (#14161d): all-pairs CVD and normal-vision floors clear at these three slots.
+const CHART_COLORS = ["#3987e5", "#d95926", "#9085e9"];
 
 Chart.defaults.color = "#9297a3";
 Chart.defaults.borderColor = "#24262f";
