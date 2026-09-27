@@ -151,21 +151,21 @@ Once all three of you get a successful connection, move to your individual layer
 
 ### 3.1 Build the synthetic corpus
 
-- [x] Create `src/eval/generate_corpus.py`. You'll need the `sentence-transformers` library and a small pretrained model, `all-MiniLM-L6-v2` is a good choice, it downloads once (roughly 90MB) and then runs fully offline, no API calls needed, and its output size is 384 numbers per piece of text, which is why every embedding column in this project is sized 384.
-- [x] Write a function that generates a given number of fake security-incident records. A simple, effective approach: write a handful of sentence templates that sound like real incident log lines (a failed login alert, suspicious outbound traffic, a flagged process, an unusual cloud-storage access), each with placeholders for a name, IP address, hostname, and timestamp, then fill those in with randomly generated values per record. Feed each finished sentence through the embedding model to get its vector, and return the text/embedding pairs ready to insert via Layer 1's document-insert helper. Spread the generated documents across your two test tenants.
+- [ ] Create `src/eval/generate_corpus.py`. You'll need the `sentence-transformers` library and a small pretrained model, `all-MiniLM-L6-v2` is a good choice, it downloads once (roughly 90MB) and then runs fully offline, no API calls needed, and its output size is 384 numbers per piece of text, which is why every embedding column in this project is sized 384.
+- [ ] Write a function that generates a given number of fake security-incident records. A simple, effective approach: write a handful of sentence templates that sound like real incident log lines (a failed login alert, suspicious outbound traffic, a flagged process, an unusual cloud-storage access), each with placeholders for a name, IP address, hostname, and timestamp, then fill those in with randomly generated values per record. Feed each finished sentence through the embedding model to get its vector, and return the text/embedding pairs ready to insert via Layer 1's document-insert helper. Spread the generated documents across your two test tenants.
 
 ### 3.2 Benchmark suite
 
-- [x] Create `src/eval/run_benchmarks.py`. At minimum it should measure and log, to a CSV file you append to rather than overwrite, with a timestamp on every run:
+- [ ] Create `src/eval/run_benchmarks.py`. At minimum it should measure and log, to a CSV file you append to rather than overwrite, with a timestamp on every run:
   - **Deletion latency**: how long a single hard-delete call takes, and separately, how long a full cascading subject erasure takes across N documents, time it immediately before and after the call.
   - **Index rebuild cost**: time the reindex step specifically, and repeat at a few different corpus sizes (say 100, 500, 1000, and 5000 documents), so you can plot cost against corpus size.
   - **Recall@k before and after deletion**: pick a fixed set of query vectors (20 is a reasonable number), run a similarity search for each before deleting anything and save which documents come back, then delete a batch of documents and run the exact same queries again, measuring how much the results overlap. This shows deletion doesn't quietly degrade search quality for everyone else's data.
-- [x] Plot the results with `matplotlib`, save the plots as image files rather than leaving them only on screen. Layer 4's dashboard will re-render this same CSV as live charts, so keep the CSV's column names stable once you settle on them.
+- [ ] Plot the results with `matplotlib`, save the plots as image files rather than leaving them only on screen. Layer 4's dashboard will re-render this same CSV as live charts, so keep the CSV's column names stable once you settle on them.
 
 ### 3.3 Document findings as you go
 
-- [x] Keep short dated notes in `docs/LAB_NOTES.md` (see Research Paper Prep below) on what settings you tried and what happened, this becomes the methodology and results write-up almost verbatim later.
-- [x] Keep `README.md`'s "Getting Started" section current if any setup steps change.
+- [ ] Keep short dated notes in `docs/LAB_NOTES.md` (see Research Paper Prep below) on what settings you tried and what happened, this becomes the methodology and results write-up almost verbatim later.
+- [ ] Keep `README.md`'s "Getting Started" section current if any setup steps change.
 
 ---
 
@@ -177,8 +177,8 @@ Build this as a small web app: a FastAPI backend that exposes Layers 1–3's Pyt
 
 ### 4.1 Set up the API backend
 
-- [x] Install the backend packages: from your activated virtual environment, run `pip install fastapi "uvicorn[standard]" jinja2 python-multipart`.
-- [x] Create `src/api/main.py`. Set up a FastAPI app and, for each of the following, one endpoint that calls straight into the corresponding Layer 1/2/3 function, don't reimplement any logic here, this layer is a thin pass-through:
+- [ ] Install the backend packages: from your activated virtual environment, run `pip install fastapi "uvicorn[standard]" jinja2 python-multipart`.
+- [ ] Create `src/api/main.py`. Set up a FastAPI app and, for each of the following, one endpoint that calls straight into the corresponding Layer 1/2/3 function, don't reimplement any logic here, this layer is a thin pass-through:
   - list tenants and subjects, with document counts per subject
   - run a similarity search for a given query tenant and text (embed the query text with the same model Layer 3 uses, then call your search)
   - submit a deletion request for a subject
@@ -187,32 +187,32 @@ Build this as a small web app: a FastAPI backend that exposes Layers 1–3's Pyt
   - verify a single audit entry, and separately, verify the whole chain (2.4)
   - fetch the deletion certificate data for a completed request (2.6)
   - fetch the latest benchmark rows from Layer 3's CSV, as JSON
-- [x] Run the server locally with `uvicorn src.api.main:app --reload --port 8000` and confirm each endpoint responds by hitting it directly in the browser or with `curl`.
+- [ ] Run the server locally with `uvicorn src.api.main:app --reload --port 8000` and confirm each endpoint responds by hitting it directly in the browser or with `curl`.
 
 ### 4.2 Design the pages, on paper first
 
 Before writing any HTML, sketch (even on paper) what each of these five pages needs to show, this saves you from redesigning mid-build:
 
-- [x] **Overview**: tenants and subjects, document counts, consent status, at a glance.
-- [x] **Search demo**: a text box, a tenant picker, a results list with similarity scores.
-- [x] **Erasure request**: pick a subject, see their document count across tenants, submit a request, watch it process live (a simple polling or loading-state UI is enough, no need for websockets).
-- [x] **Audit trail**: a table of signed deletions, a Verify button per row that shows a green check or red X, and a "verify entire chain" button for the tamper-evidence demo, plus a way to deliberately corrupt one row (only in a demo/dev mode) so you can show verification failing live.
-- [x] **Benchmarks**: charts for deletion latency, index-rebuild cost vs. corpus size, and recall@k before/after, pulled from 4.1's benchmarks endpoint.
+- [ ] **Overview**: tenants and subjects, document counts, consent status, at a glance.
+- [ ] **Search demo**: a text box, a tenant picker, a results list with similarity scores.
+- [ ] **Erasure request**: pick a subject, see their document count across tenants, submit a request, watch it process live (a simple polling or loading-state UI is enough, no need for websockets).
+- [ ] **Audit trail**: a table of signed deletions, a Verify button per row that shows a green check or red X, and a "verify entire chain" button for the tamper-evidence demo, plus a way to deliberately corrupt one row (only in a demo/dev mode) so you can show verification failing live.
+- [ ] **Benchmarks**: charts for deletion latency, index-rebuild cost vs. corpus size, and recall@k before/after, pulled from 4.1's benchmarks endpoint.
 
 ### 4.3 Build the pages
 
-- [x] Create a `frontend/` (or `static/`) folder with one HTML file per page from 4.2, plus a shared CSS file for consistent styling, and a shared JS file with small helper functions for calling your API endpoints and rendering results into the page.
-- [x] Serve these files from FastAPI as static files (look up FastAPI's `StaticFiles` mount for this) so the whole app runs from one `uvicorn` process.
-- [x] For the benchmarks page's charts, add the Chart.js CDN script tag to that page's HTML head, look up the current version's CDN tag, then feed it the JSON from your benchmarks endpoint.
+- [ ] Create a `frontend/` (or `static/`) folder with one HTML file per page from 4.2, plus a shared CSS file for consistent styling, and a shared JS file with small helper functions for calling your API endpoints and rendering results into the page.
+- [ ] Serve these files from FastAPI as static files (look up FastAPI's `StaticFiles` mount for this) so the whole app runs from one `uvicorn` process.
+- [ ] For the benchmarks page's charts, add the Chart.js CDN script tag to that page's HTML head, look up the current version's CDN tag, then feed it the JSON from your benchmarks endpoint.
 
 ### 4.4 Wire up the certificate download
 
-- [x] On the erasure request page, once a request shows as completed, add a "Download certificate" action that calls the certificate endpoint (4.1) and renders the result as a clean printable page, subject ID, timestamps, and the list of document hash/signature pairs, formatted so a reader could independently re-run 2.4's verification against it.
+- [ ] On the erasure request page, once a request shows as completed, add a "Download certificate" action that calls the certificate endpoint (4.1) and renders the result as a clean printable page, subject ID, timestamps, and the list of document hash/signature pairs, formatted so a reader could independently re-run 2.4's verification against it.
 
 ### 4.5 Polish for presentation
 
-- [x] Pick one consistent visual style across all five pages, something that reads as a security/compliance tool rather than a school project, a dark theme with a single accent color is a fast way to get there.
-- [x] Once the flow works end to end, take a screen recording of the full story: search, submit erasure, watch it process, check the audit trail, verify a signature, tamper with one and watch it fail, download the certificate. This is your demo video and your resume portfolio piece.
+- [ ] Pick one consistent visual style across all five pages, something that reads as a security/compliance tool rather than a school project, a dark theme with a single accent color is a fast way to get there.
+- [ ] Once the flow works end to end, take a screen recording of the full story: search, submit erasure, watch it process, check the audit trail, verify a signature, tamper with one and watch it fail, download the certificate. This is your demo video and your resume portfolio piece.
 
 ---
 
