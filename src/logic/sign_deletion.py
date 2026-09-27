@@ -2,6 +2,7 @@ from pathlib import Path
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from src.db.db import get_connection
+from src.logic.verify_deletion import load_public_key, verify_signature
 from datetime import datetime, timezone
 
 PRIVATE_KEY_FILE = Path("keys/private_key.pem")
@@ -83,6 +84,23 @@ def sign_deletion(content, document_id):
 
     private_key = load_private_key()
     signature = sign_message(message, private_key)
+
+    # Self-check: verify the signature immediately, against the exact same
+    # in-memory message just signed, before this ever reaches the database.
+    # Guards against ever silently persisting an audit row whose stored
+    # signature doesn't actually verify against its own stored fields, one
+    # unexplained case of exactly that showed up during benchmarking (see
+    # MYLEARNING.md, 2026-09-27). Root cause was never pinned down and it
+    # never recurred, so this can't fix whatever caused it, but it means we
+    # will never again find out about a bad row cold, days later, we fail
+    # loudly right here instead, with the actual signing call still on the
+    # stack to inspect.
+    public_key = load_public_key()
+    if not verify_signature(message, signature, public_key):
+        raise RuntimeError(
+            f"Signature failed self-verification immediately after signing "
+            f"for document {document_id}. Refusing to write this audit row."
+        )
 
     return {
         "content_hash": content_hash,
