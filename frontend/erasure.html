@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Lethe — Erasure Request</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<nav>
+  <a href="index.html">Overview</a>
+  <a href="search.html">Search</a>
+  <a href="erasure.html" class="active">Erasure Request</a>
+  <a href="audit.html">Audit Trail</a>
+  <a href="benchmarks.html">Benchmarks</a>
+</nav>
+<main>
+  <h1>Submit an erasure request</h1>
+  <p class="subtitle">Pick a subject, submit a request, then process it, this cascades to every document that subject has, across both tenants.</p>
+
+  <div class="panel">
+    <div class="form-row">
+      <select id="subject-select"></select>
+      <button id="submit-btn">Submit deletion request</button>
+    </div>
+    <div id="status" class="status-line"></div>
+  </div>
+</main>
+<script src="app.js"></script>
+<script>
+const subjectSelect = document.getElementById("subject-select");
+const statusEl = document.getElementById("status");
+
+async function loadSubjects() {
+  try {
+    const subjects = await getJSON("/subjects");
+    subjectSelect.innerHTML = "";
+    subjects.forEach((s) => {
+      const option = document.createElement("option");
+      option.value = s.subject_id;
+      option.textContent = `${s.display_name} (${tenantLabel(s.tenant_id)}, ${s.document_count} docs)`;
+      subjectSelect.appendChild(option);
+    });
+  } catch (err) {
+    statusEl.textContent = "Failed to load subjects: " + err.message;
+  }
+}
+
+document.getElementById("submit-btn").addEventListener("click", async () => {
+  const subjectId = subjectSelect.value;
+  if (!subjectId) return;
+
+  try {
+    statusEl.textContent = "Submitting deletion request...";
+    const request = await postJSON("/deletion-requests", { subject_id: subjectId });
+
+    statusEl.textContent = `Request ${request.deletion_request_id} submitted, processing (cascading erasure in progress)...`;
+    const processed = await postJSON(`/deletion-requests/${request.deletion_request_id}/process`);
+
+    statusEl.textContent = `Request ${processed.deletion_request_id} is now ${processed.status}.`;
+    loadSubjects();
+  } catch (err) {
+    statusEl.textContent = "Erasure failed: " + err.message;
+  }
+});
+
+loadSubjects();
+</script>
+</body>
+</html>

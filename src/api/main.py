@@ -1,6 +1,7 @@
 import csv
 
 from fastapi import FastAPI, HTTPException
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from src.db.db import get_connection
@@ -227,3 +228,6 @@ def benchmarks():
 
     with open(CSV_PATH, newline="") as f:
         return list(csv.DictReader(f))
+
+
+app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")

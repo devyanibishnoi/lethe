@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Lethe — Search</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<nav>
+  <a href="index.html">Overview</a>
+  <a href="search.html" class="active">Search</a>
+  <a href="erasure.html">Erasure Request</a>
+  <a href="audit.html">Audit Trail</a>
+  <a href="benchmarks.html">Benchmarks</a>
+</nav>
+<main>
+  <h1>Search demo</h1>
+  <p class="subtitle">Semantic similarity search over one tenant's live documents.</p>
+
+  <div class="panel">
+    <div class="form-row">
+      <select id="tenant-select">
+        <option value="00000000-0000-0000-0000-000000000001">Tenant 1</option>
+        <option value="00000000-0000-0000-0000-000000000002">Tenant 2</option>
+      </select>
+      <input type="text" id="query-text" placeholder="e.g. suspicious login from an unrecognized ip" />
+      <button id="search-btn">Search</button>
+    </div>
+    <div id="status" class="status-line"></div>
+    <div id="results-table"></div>
+  </div>
+</main>
+<script src="app.js"></script>
+<script>
+const statusEl = document.getElementById("status");
+const resultsEl = document.getElementById("results-table");
+
+document.getElementById("search-btn").addEventListener("click", async () => {
+  const tenantId = document.getElementById("tenant-select").value;
+  const queryText = document.getElementById("query-text").value.trim();
+
+  if (!queryText) {
+    statusEl.textContent = "Type something to search for.";
+    return;
+  }
+
+  statusEl.textContent = "Searching...";
+  resultsEl.innerHTML = "";
+
+  try {
+    const results = await postJSON("/search", { tenant_id: tenantId, query_text: queryText, k: 10 });
+    statusEl.textContent = `${results.length} results`;
+
+    renderTable(resultsEl, ["#", "Similarity", "Content"], results, (r) => {
+      const tr = document.createElement("tr");
+      const similarity = (1 - r.distance).toFixed(3);
+      tr.appendChild(td(results.indexOf(r) + 1));
+      tr.appendChild(td(similarity));
+      tr.appendChild(td(r.content));
+      return tr;
+    });
+  } catch (err) {
+    statusEl.textContent = "Search failed: " + err.message;
+  }
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Lethe — Audit Trail</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<nav>
+  <a href="index.html">Overview</a>
+  <a href="search.html">Search</a>
+  <a href="erasure.html">Erasure Request</a>
+  <a href="audit.html" class="active">Audit Trail</a>
+  <a href="benchmarks.html">Benchmarks</a>
+</nav>
+<main>
+  <h1>Audit trail</h1>
+  <p class="subtitle">Every signed deletion, most recent first. Verify a single signature, or the whole hash chain.</p>
+
+  <div class="panel">
+    <div class="form-row">
+      <button id="verify-chain-btn">Verify entire chain</button>
+      <span id="chain-status"></span>
+    </div>
+    <p class="status-line">"Corrupt" is a demo-only button that deliberately breaks one row's stored hash, so you can watch verification fail live. It is not a real feature.</p>
+    <div id="audit-table"></div>
+  </div>
+</main>
+<script src="app.js"></script>
+<script>
+const auditTableEl = document.getElementById("audit-table");
+const chainStatusEl = document.getElementById("chain-status");
+
+async function loadAuditLog() {
+  try {
+    const rows = await getJSON("/audit-log");
+    renderTable(
+      auditTableEl,
+      ["Signed at", "Document", "Result", "", ""],
+      rows,
+      (row) => {
+        const tr = document.createElement("tr");
+        tr.appendChild(td(new Date(row.signed_at).toLocaleString()));
+        tr.appendChild(td(row.document_id.slice(0, 8) + "..."));
+
+        const resultCell = document.createElement("td");
+        resultCell.appendChild(badge("unchecked", "unknown"));
+        tr.appendChild(resultCell);
+
+        const verifyCell = document.createElement("td");
+        const verifyBtn = document.createElement("button");
+        verifyBtn.className = "secondary";
+        verifyBtn.textContent = "Verify";
+        verifyBtn.addEventListener("click", async () => {
+          resultCell.innerHTML = "";
+          resultCell.appendChild(badge("checking...", "unknown"));
+          try {
+            const result = await getJSON(`/audit-log/${row.id}/verify`);
+            resultCell.innerHTML = "";
+            resultCell.appendChild(
+              result.valid ? badge("valid", "good") : badge("INVALID", "bad")
+            );
+          } catch (err) {
+            resultCell.innerHTML = "";
+            resultCell.appendChild(badge("error", "bad"));
+          }
+        });
+        verifyCell.appendChild(verifyBtn);
+        tr.appendChild(verifyCell);
+
+        const corruptCell = document.createElement("td");
+        const corruptBtn = document.createElement("button");
+        corruptBtn.className = "danger";
+        corruptBtn.textContent = "Corrupt (demo)";
+        corruptBtn.addEventListener("click", async () => {
+          if (!confirm("This permanently breaks this row's hash (and the chain after it). Continue?")) return;
+          await postJSON(`/audit-log/${row.id}/corrupt-for-demo`);
+          verifyBtn.click();
+        });
+        corruptCell.appendChild(corruptBtn);
+        tr.appendChild(corruptCell);
+
+        return tr;
+      }
+    );
+  } catch (err) {
+    auditTableEl.textContent = "Failed to load audit log: " + err.message;
+  }
+}
+
+document.getElementById("verify-chain-btn").addEventListener("click", async () => {
+  chainStatusEl.textContent = "";
+  chainStatusEl.appendChild(badge("checking...", "unknown"));
+  try {
+    const result = await getJSON("/audit-log/verify-chain");
+    chainStatusEl.innerHTML = "";
+    chainStatusEl.appendChild(
+      result.valid ? badge("chain intact", "good") : badge("CHAIN BROKEN", "bad")
+    );
+  } catch (err) {
+    chainStatusEl.textContent = "Error: " + err.message;
+  }
+});
+
+loadAuditLog();
+</script>
+</body>
+</html>

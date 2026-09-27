@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Lethe — Benchmarks</title>
+<link rel="stylesheet" href="style.css" />
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+<body>
+<nav>
+  <a href="index.html">Overview</a>
+  <a href="search.html">Search</a>
+  <a href="erasure.html">Erasure Request</a>
+  <a href="audit.html">Audit Trail</a>
+  <a href="benchmarks.html" class="active">Benchmarks</a>
+</nav>
+<main>
+  <h1>Benchmarks</h1>
+  <p class="subtitle">Read live from <code>docs/benchmark_results.csv</code>, every historical run.</p>
+
+  <div class="panel">
+    <h2>Deletion latency</h2>
+    <canvas id="latency-chart"></canvas>
+  </div>
+
+  <div class="panel">
+    <h2>Index rebuild cost vs. corpus size</h2>
+    <canvas id="rebuild-chart"></canvas>
+  </div>
+
+  <div class="panel">
+    <h2>Recall@k, before vs. after deletion</h2>
+    <canvas id="recall-chart"></canvas>
+  </div>
+</main>
+<script src="app.js"></script>
+<script>
+const CHART_COLORS = ["#4fd1c5", "#e0a75c", "#e05c5c", "#5c8fe0"];
+
+function chartBase(canvasId) {
+  return document.getElementById(canvasId).getContext("2d");
+}
+
+async function load() {
+  let rows;
+  try {
+    rows = await getJSON("/benchmarks");
+  } catch (err) {
+    document.querySelector("main").insertAdjacentHTML(
+      "beforeend",
+      `<p class="status-line">Failed to load benchmarks: ${err.message}</p>`
+    );
+    return;
+  }
+
+  const byMetric = {};
+  rows.forEach((r) => {
+    (byMetric[r.metric] = byMetric[r.metric] || []).push(r);
+  });
+
+  // Deletion latency: one point per run, grouped by metric name
+  const latencyMetrics = ["hard_delete_latency", "cascading_erasure_latency"];
+  new Chart(chartBase("latency-chart"), {
+    type: "line",
+    data: {
+      labels: (byMetric["hard_delete_latency"] || []).map((_, i) => `run ${i + 1}`),
+      datasets: latencyMetrics
+        .filter((m) => byMetric[m])
+        .map((m, i) => ({
+          label: m,
+          data: byMetric[m].map((r) => parseFloat(r.value)),
+          borderColor: CHART_COLORS[i],
+          backgroundColor: CHART_COLORS[i],
+        })),
+    },
+    options: { scales: { y: { title: { display: true, text: "ms" } } } },
+  });
+
+  // Index rebuild cost vs corpus size
+  const rebuildRows = (byMetric["index_rebuild_cost"] || [])
+    .map((r) => ({ x: parseFloat(r.corpus_size), y: parseFloat(r.value) }))
+    .sort((a, b) => a.x - b.x);
+
+  new Chart(chartBase("rebuild-chart"), {
+    type: "line",
+    data: {
+      datasets: [
+        {
+          label: "index_rebuild_cost (ms)",
+          data: rebuildRows,
+          borderColor: CHART_COLORS[0],
+          backgroundColor: CHART_COLORS[0],
+        },
+      ],
+    },
+    options: {
+      scales: {
+        x: { type: "linear", title: { display: true, text: "corpus size (documents)" } },
+        y: { title: { display: true, text: "ms" } },
+      },
+    },
+  });
+
+  // Recall@k across runs
+  const recallRows = byMetric["recall_at_k"] || [];
+  new Chart(chartBase("recall-chart"), {
+    type: "line",
+    data: {
+      labels: recallRows.map((_, i) => `run ${i + 1}`),
+      datasets: [
+        {
+          label: "recall@k overlap (fraction)",
+          data: recallRows.map((r) => parseFloat(r.value)),
+          borderColor: CHART_COLORS[2],
+          backgroundColor: CHART_COLORS[2],
+        },
+      ],
+    },
+    options: { scales: { y: { min: 0, max: 1.05 } } },
+  });
+}
+
+load();
+</script>
+</body>
+</html>
