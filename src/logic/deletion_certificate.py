@@ -36,6 +36,7 @@ def get_deletion_certificate(deletion_request_id):
                 SELECT
                     document_id,
                     deleted_hash,
+                    previous_hash,
                     signature,
                     signed_at
                 FROM deletion_audit_log
@@ -47,7 +48,7 @@ def get_deletion_certificate(deletion_request_id):
             audit_entries = cur.fetchall()
 
         completed_at = (
-            audit_entries[-1][3]
+            audit_entries[-1][4]
             if audit_entries
             else None
         )
@@ -61,8 +62,15 @@ def get_deletion_certificate(deletion_request_id):
                 {
                     "document_id": row[0],
                     "hash": row[1],
-                    "signature": row[2],
-                    "signed_at": row[3],
+                    "previous_hash": row[2],
+                    "signature": row[3],
+                    # str(), not the datetime object itself: this must match the exact
+                    # string that was embedded in the signed message (build_message()
+                    # in sign_deletion.py uses plain f"{signed_at}"), or re-running
+                    # verify_deletion() against this certificate will spuriously fail.
+                    # The default JSON datetime encoding (isoformat, "T" separator)
+                    # is NOT that string.
+                    "signed_at": str(row[4]),
                 }
                 for row in audit_entries
             ],

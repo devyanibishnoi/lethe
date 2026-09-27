@@ -23,6 +23,7 @@
       <button id="submit-btn">Submit deletion request</button>
     </div>
     <div id="status" class="status-line"></div>
+    <div id="certificate-link"></div>
   </div>
 </main>
 <script src="app.js"></script>
@@ -45,9 +46,13 @@ async function loadSubjects() {
   }
 }
 
+const certificateLinkEl = document.getElementById("certificate-link");
+
 document.getElementById("submit-btn").addEventListener("click", async () => {
   const subjectId = subjectSelect.value;
   if (!subjectId) return;
+
+  certificateLinkEl.innerHTML = "";
 
   try {
     statusEl.textContent = "Submitting deletion request...";
@@ -57,6 +62,12 @@ document.getElementById("submit-btn").addEventListener("click", async () => {
     const processed = await postJSON(`/deletion-requests/${request.deletion_request_id}/process`);
 
     statusEl.textContent = `Request ${processed.deletion_request_id} is now ${processed.status}.`;
+
+    const link = document.createElement("a");
+    link.href = `certificate.html?request_id=${processed.deletion_request_id}`;
+    link.textContent = "View deletion certificate";
+    certificateLinkEl.appendChild(link);
+
     loadSubjects();
   } catch (err) {
     statusEl.textContent = "Erasure failed: " + err.message;

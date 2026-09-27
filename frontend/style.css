@@ -73,6 +73,7 @@ th, td {
   padding: 0.5rem 0.6rem;
   border-bottom: 1px solid var(--border);
   font-size: 0.9rem;
+  word-break: break-all;
 }
 
 th {
