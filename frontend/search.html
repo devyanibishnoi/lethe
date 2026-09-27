@@ -6,13 +6,19 @@
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-<nav>
-  <a href="index.html">Overview</a>
-  <a href="search.html" class="active">Search</a>
-  <a href="erasure.html">Erasure Request</a>
-  <a href="audit.html">Audit Trail</a>
-  <a href="benchmarks.html">Benchmarks</a>
-</nav>
+<div class="sidebar">
+  <div>
+    <a href="index.html" class="brand-link"><div class="brand-name">Lethe</div></a>
+    <div class="brand-tag">Certified Forgetting</div>
+  </div>
+  <nav class="side-nav">
+    <a href="overview.html">Overview</a>
+    <a href="search.html" class="active">Search</a>
+    <a href="erasure.html">Erasure Request</a>
+    <a href="audit.html">Audit Trail</a>
+    <a href="benchmarks.html">Benchmarks</a>
+  </nav>
+</div>
 <main>
   <h1>Search demo</h1>
   <p class="subtitle">Semantic similarity search over one tenant's live documents.</p>
@@ -35,7 +41,7 @@
 const statusEl = document.getElementById("status");
 const resultsEl = document.getElementById("results-table");
 
-document.getElementById("search-btn").addEventListener("click", async () => {
+async function runSearch() {
   const tenantId = document.getElementById("tenant-select").value;
   const queryText = document.getElementById("query-text").value.trim();
 
@@ -55,12 +61,20 @@ document.getElementById("search-btn").addEventListener("click", async () => {
       const tr = document.createElement("tr");
       const similarity = (1 - r.distance).toFixed(3);
       tr.appendChild(td(results.indexOf(r) + 1));
-      tr.appendChild(td(similarity));
+      tr.appendChild(tdMono(similarity));
       tr.appendChild(td(r.content));
       return tr;
     });
   } catch (err) {
     statusEl.textContent = "Search failed: " + err.message;
+  }
+}
+
+document.getElementById("search-btn").addEventListener("click", runSearch);
+document.getElementById("query-text").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    runSearch();
   }
 });
 </script>

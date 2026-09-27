@@ -33,6 +33,13 @@ function td(text) {
   return cell;
 }
 
+function tdMono(text) {
+  const cell = document.createElement("td");
+  cell.className = "mono";
+  cell.textContent = text;
+  return cell;
+}
+
 function renderTable(container, columns, rows, rowRenderer) {
   container.innerHTML = "";
 

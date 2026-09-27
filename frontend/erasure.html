@@ -6,13 +6,19 @@
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-<nav>
-  <a href="index.html">Overview</a>
-  <a href="search.html">Search</a>
-  <a href="erasure.html" class="active">Erasure Request</a>
-  <a href="audit.html">Audit Trail</a>
-  <a href="benchmarks.html">Benchmarks</a>
-</nav>
+<div class="sidebar">
+  <div>
+    <a href="index.html" class="brand-link"><div class="brand-name">Lethe</div></a>
+    <div class="brand-tag">Certified Forgetting</div>
+  </div>
+  <nav class="side-nav">
+    <a href="overview.html">Overview</a>
+    <a href="search.html">Search</a>
+    <a href="erasure.html" class="active">Erasure Request</a>
+    <a href="audit.html">Audit Trail</a>
+    <a href="benchmarks.html">Benchmarks</a>
+  </nav>
+</div>
 <main>
   <h1>Submit an erasure request</h1>
   <p class="subtitle">Pick a subject, submit a request, then process it, this cascades to every document that subject has, across both tenants.</p>

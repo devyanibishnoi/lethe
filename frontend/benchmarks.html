@@ -7,13 +7,19 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 </head>
 <body>
-<nav>
-  <a href="index.html">Overview</a>
-  <a href="search.html">Search</a>
-  <a href="erasure.html">Erasure Request</a>
-  <a href="audit.html">Audit Trail</a>
-  <a href="benchmarks.html" class="active">Benchmarks</a>
-</nav>
+<div class="sidebar">
+  <div>
+    <a href="index.html" class="brand-link"><div class="brand-name">Lethe</div></a>
+    <div class="brand-tag">Certified Forgetting</div>
+  </div>
+  <nav class="side-nav">
+    <a href="overview.html">Overview</a>
+    <a href="search.html">Search</a>
+    <a href="erasure.html">Erasure Request</a>
+    <a href="audit.html">Audit Trail</a>
+    <a href="benchmarks.html" class="active">Benchmarks</a>
+  </nav>
+</div>
 <main>
   <h1>Benchmarks</h1>
   <p class="subtitle">Read live from <code>docs/benchmark_results.csv</code>, every historical run.</p>
@@ -35,7 +41,11 @@
 </main>
 <script src="app.js"></script>
 <script>
-const CHART_COLORS = ["#4fd1c5", "#e0a75c", "#e05c5c", "#5c8fe0"];
+const CHART_COLORS = ["#c9a668", "#6fbf8e", "#d1705f", "#7c8394"];
+
+Chart.defaults.color = "#9297a3";
+Chart.defaults.borderColor = "#24262f";
+Chart.defaults.font.family = "-apple-system, 'Segoe UI', system-ui, sans-serif";
 
 function chartBase(canvasId) {
   return document.getElementById(canvasId).getContext("2d");
@@ -76,22 +86,31 @@ async function load() {
     options: { scales: { y: { title: { display: true, text: "ms" } } } },
   });
 
-  // Index rebuild cost vs corpus size
-  const rebuildRows = (byMetric["index_rebuild_cost"] || [])
-    .map((r) => ({ x: parseFloat(r.corpus_size), y: parseFloat(r.value) }))
-    .sort((a, b) => a.x - b.x);
+  // Index rebuild cost vs corpus size. Each complete run sweeps the same
+  // CORPUS_SIZES list once (see run_benchmarks.py), so consecutive chunks of
+  // that length are one run's points, plot each run as its own line rather
+  // than sorting every historical point into one line, which would zigzag
+  // between runs at shared x-values (both runs hit corpus size 100, 500, ...).
+  const rebuildPoints = (byMetric["index_rebuild_cost"] || []).map((r) => ({
+    x: parseFloat(r.corpus_size),
+    y: parseFloat(r.value),
+  }));
+
+  const sweepLength = new Set(rebuildPoints.map((p) => p.x)).size || 1;
+  const rebuildRuns = [];
+  for (let i = 0; i < rebuildPoints.length; i += sweepLength) {
+    rebuildRuns.push(rebuildPoints.slice(i, i + sweepLength).sort((a, b) => a.x - b.x));
+  }
 
   new Chart(chartBase("rebuild-chart"), {
     type: "line",
     data: {
-      datasets: [
-        {
-          label: "index_rebuild_cost (ms)",
-          data: rebuildRows,
-          borderColor: CHART_COLORS[0],
-          backgroundColor: CHART_COLORS[0],
-        },
-      ],
+      datasets: rebuildRuns.map((run, i) => ({
+        label: rebuildRuns.length > 1 ? `run ${i + 1}` : "index_rebuild_cost (ms)",
+        data: run,
+        borderColor: CHART_COLORS[i % CHART_COLORS.length],
+        backgroundColor: CHART_COLORS[i % CHART_COLORS.length],
+      })),
     },
     options: {
       scales: {

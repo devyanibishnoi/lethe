@@ -6,13 +6,19 @@
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-<nav>
-  <a href="index.html">Overview</a>
-  <a href="search.html">Search</a>
-  <a href="erasure.html">Erasure Request</a>
-  <a href="audit.html" class="active">Audit Trail</a>
-  <a href="benchmarks.html">Benchmarks</a>
-</nav>
+<div class="sidebar">
+  <div>
+    <a href="index.html" class="brand-link"><div class="brand-name">Lethe</div></a>
+    <div class="brand-tag">Certified Forgetting</div>
+  </div>
+  <nav class="side-nav">
+    <a href="overview.html">Overview</a>
+    <a href="search.html">Search</a>
+    <a href="erasure.html">Erasure Request</a>
+    <a href="audit.html" class="active">Audit Trail</a>
+    <a href="benchmarks.html">Benchmarks</a>
+  </nav>
+</div>
 <main>
   <h1>Audit trail</h1>
   <p class="subtitle">Every signed deletion, most recent first. Verify a single signature, or the whole hash chain.</p>
@@ -41,7 +47,7 @@ async function loadAuditLog() {
       (row) => {
         const tr = document.createElement("tr");
         tr.appendChild(td(new Date(row.signed_at).toLocaleString()));
-        tr.appendChild(td(row.document_id.slice(0, 8) + "..."));
+        tr.appendChild(tdMono(row.document_id.slice(0, 8) + "..."));
 
         const resultCell = document.createElement("td");
         resultCell.appendChild(badge("unchecked", "unknown"));

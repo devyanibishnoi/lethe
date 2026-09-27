@@ -2,55 +2,262 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>Lethe — Overview</title>
+<title>Lethe — Certified Forgetting</title>
 <link rel="stylesheet" href="style.css" />
+<style>
+  body {
+    display: block;
+  }
+
+  .landing-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.5rem 3rem;
+    border-bottom: 1px solid var(--border-soft);
+  }
+
+  .landing-bar .brand-tag {
+    border-top: none;
+    padding-top: 0;
+    margin-top: 0.25rem;
+  }
+
+  .landing {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 5rem 2rem 6rem;
+  }
+
+  .landing h1 {
+    font-size: 2.6rem;
+    line-height: 1.15;
+    margin-bottom: 1.25rem;
+  }
+
+  .landing .lede {
+    font-size: 1.15rem;
+    line-height: 1.65;
+    color: var(--text-dim);
+    max-width: 640px;
+    margin-bottom: 2.5rem;
+  }
+
+  .cta-row {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+    margin-bottom: 5rem;
+  }
+
+  .cta-row button {
+    padding: 0.75rem 1.5rem;
+    font-size: 0.95rem;
+  }
+
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 0.75rem;
+  }
+
+  .landing section {
+    margin-bottom: 4.5rem;
+  }
+
+  .landing section h2 {
+    font-family: var(--font-display);
+    font-weight: 500;
+    font-size: 1.6rem;
+    margin-bottom: 1rem;
+  }
+
+  .landing section p {
+    color: var(--text-dim);
+    line-height: 1.65;
+    font-size: 0.98rem;
+    max-width: 680px;
+  }
+
+  .concept-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1.25rem;
+    margin-top: 1.75rem;
+  }
+
+  .concept-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.4rem;
+  }
+
+  .concept-card .num {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--accent);
+    letter-spacing: 0.05em;
+  }
+
+  .concept-card h3 {
+    font-family: var(--font-display);
+    font-weight: 500;
+    font-size: 1.1rem;
+    margin: 0.6rem 0 0.5rem;
+  }
+
+  .concept-card p {
+    font-size: 0.88rem;
+    color: var(--text-dim);
+    margin: 0;
+  }
+
+  .page-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 1rem;
+    margin-top: 1.75rem;
+  }
+
+  .page-card {
+    display: block;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.25rem 1.4rem;
+    text-decoration: none;
+    transition: border-color 0.15s, transform 0.15s;
+  }
+
+  .page-card:hover {
+    border-color: var(--accent-dim);
+    transform: translateY(-1px);
+  }
+
+  .page-card h3 {
+    font-family: var(--font-body);
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--text);
+    margin: 0 0 0.35rem;
+  }
+
+  .page-card p {
+    font-size: 0.83rem;
+    color: var(--text-dim);
+    margin: 0;
+    line-height: 1.5;
+  }
+
+  .stack-line {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    color: var(--text-faint);
+    border-top: 1px solid var(--border-soft);
+    padding-top: 1.5rem;
+  }
+</style>
 </head>
 <body>
-<nav>
-  <a href="index.html" class="active">Overview</a>
-  <a href="search.html">Search</a>
-  <a href="erasure.html">Erasure Request</a>
-  <a href="audit.html">Audit Trail</a>
-  <a href="benchmarks.html">Benchmarks</a>
-</nav>
-<main>
-  <h1>Overview</h1>
-  <p class="subtitle">Subjects across both tenants, consent status, and document counts.</p>
-
-  <div class="panel">
-    <div id="subjects-table"></div>
+<div class="landing-bar">
+  <div>
+    <div class="brand-name">Lethe</div>
+    <div class="brand-tag">Certified Forgetting</div>
   </div>
-</main>
-<script src="app.js"></script>
-<script>
-async function load() {
-  const container = document.getElementById("subjects-table");
-  try {
-    const subjects = await getJSON("/subjects");
-    renderTable(
-      container,
-      ["Subject", "Tenant", "Consent", "Documents"],
-      subjects,
-      (s) => {
-        const tr = document.createElement("tr");
-        tr.appendChild(td(s.display_name));
-        tr.appendChild(td(tenantLabel(s.tenant_id)));
+  <button onclick="window.location.href='overview.html'">Enter the live system</button>
+</div>
 
-        const consentCell = document.createElement("td");
-        if (s.consented === true) consentCell.appendChild(badge("Consented", "good"));
-        else if (s.consented === false) consentCell.appendChild(badge("Not consented", "bad"));
-        else consentCell.appendChild(badge("Unset", "unknown"));
-        tr.appendChild(consentCell);
+<div class="landing">
+  <div class="eyebrow">Database systems / applied cryptography</div>
+  <h1>Making "your data has been deleted" a provable claim, not a promise.</h1>
+  <p class="lede">
+    Lethe is a database-native deletion layer for RAG knowledge bases. Most vector databases only
+    soft-delete on request, the embedding stays physically recoverable on disk. Lethe hard-deletes
+    it, rebuilds only the affected partition, and produces a cryptographically signed, hash-chained
+    audit record proving the deletion actually happened.
+  </p>
+  <div class="cta-row">
+    <button onclick="window.location.href='overview.html'">Enter the live system</button>
+    <button class="secondary" onclick="window.location.href='#how-it-works'">How it works ↓</button>
+  </div>
 
-        tr.appendChild(td(s.document_count));
-        return tr;
-      }
-    );
-  } catch (err) {
-    container.textContent = "Failed to load subjects: " + err.message;
-  }
-}
-load();
-</script>
+  <section>
+    <div class="eyebrow">The gap</div>
+    <h2>Soft-delete isn't deletion</h2>
+    <p>
+      Enterprises increasingly ground LLM outputs in their own private data through
+      Retrieval-Augmented Generation, backed by HNSW- or IVF-indexed vector databases. When a data
+      subject exercises their GDPR Article 17 right to erasure, most implementations simply flag the
+      record as removed, the underlying embedding remains physically present and recoverable
+      directly from the index files on disk. For a service whose core trust guarantee is that client
+      data stays under client control, that's not a peripheral bug, it's the whole promise, broken.
+    </p>
+  </section>
+
+  <section id="how-it-works">
+    <div class="eyebrow">The approach</div>
+    <h2>How Lethe closes it</h2>
+    <p>
+      Efficient hard-delete at scale, and proof that it happened, without a full index rebuild every
+      time.
+    </p>
+    <div class="concept-grid">
+      <div class="concept-card">
+        <div class="num">01</div>
+        <h3>Partitioned index</h3>
+        <p>The vector index is partitioned by tenant, so one deletion only ever rebuilds the affected shard, not the whole dataset.</p>
+      </div>
+      <div class="concept-card">
+        <div class="num">02</div>
+        <h3>Hash-chained audit log</h3>
+        <p>Every deletion is signed with ECDSA and chained to the entry before it, so tampering with history, not just one row, is detectable.</p>
+      </div>
+      <div class="concept-card">
+        <div class="num">03</div>
+        <h3>Cascading erasure</h3>
+        <p>A real erasure request names a person, not a document ID. One request finds and hard-deletes every document a subject has, across every tenant.</p>
+      </div>
+      <div class="concept-card">
+        <div class="num">04</div>
+        <h3>Benchmarked, not asserted</h3>
+        <p>Deletion latency, index-rebuild cost, and recall@k before/after deletion are all measured across increasing corpus sizes, not just claimed.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="eyebrow">Try it</div>
+    <h2>Explore the live system</h2>
+    <p>Every page below is a real, working part of the system, not a mockup, backed by a live Postgres + pgvector database.</p>
+    <div class="page-grid">
+      <a class="page-card" href="overview.html">
+        <h3>Overview</h3>
+        <p>Subjects across both tenants, consent status, and document counts.</p>
+      </a>
+      <a class="page-card" href="search.html">
+        <h3>Search</h3>
+        <p>Semantic similarity search over live documents, ranked by cosine distance.</p>
+      </a>
+      <a class="page-card" href="erasure.html">
+        <h3>Erasure request</h3>
+        <p>Submit a real GDPR-style erasure request and watch it cascade.</p>
+      </a>
+      <a class="page-card" href="audit.html">
+        <h3>Audit trail</h3>
+        <p>Verify a single signature, or the entire hash chain, live.</p>
+      </a>
+      <a class="page-card" href="benchmarks.html">
+        <h3>Benchmarks</h3>
+        <p>Deletion latency, rebuild cost, and recall@k, charted from real runs.</p>
+      </a>
+    </div>
+  </section>
+
+  <p class="stack-line">PostgreSQL + pgvector · Python · ECDSA / SHA-256 · FastAPI · sentence-transformers</p>
+</div>
 </body>
 </html>

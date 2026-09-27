@@ -6,22 +6,30 @@
 <link rel="stylesheet" href="style.css" />
 <style>
 @media print {
-  nav, .no-print { display: none; }
-  body { background: #fff; color: #000; }
+  .sidebar, .no-print { display: none; }
+  body { background: #fff; color: #000; display: block; }
+  main { max-width: 100%; padding: 0; }
   .panel { background: #fff; border-color: #ccc; }
   th, td { border-color: #ccc; }
-  .badge.good { color: #000; background: none; }
+  .badge.good::before { background: #000; }
+  .badge.good { color: #000; }
 }
 </style>
 </head>
 <body>
-<nav class="no-print">
-  <a href="index.html">Overview</a>
-  <a href="search.html">Search</a>
-  <a href="erasure.html">Erasure Request</a>
-  <a href="audit.html">Audit Trail</a>
-  <a href="benchmarks.html">Benchmarks</a>
-</nav>
+<div class="sidebar no-print">
+  <div>
+    <a href="index.html" class="brand-link"><div class="brand-name">Lethe</div></a>
+    <div class="brand-tag">Certified Forgetting</div>
+  </div>
+  <nav class="side-nav">
+    <a href="overview.html">Overview</a>
+    <a href="search.html">Search</a>
+    <a href="erasure.html">Erasure Request</a>
+    <a href="audit.html">Audit Trail</a>
+    <a href="benchmarks.html">Benchmarks</a>
+  </nav>
+</div>
 <main>
   <h1>Deletion certificate</h1>
   <p class="subtitle">Proof that a specific erasure request completed: every document it removed, each one's content hash and signature, so a reader can independently re-run verification against this record.</p>
@@ -35,12 +43,21 @@
 <script>
 document.getElementById("print-btn").addEventListener("click", () => window.print());
 
-function field(label, value) {
+function field(label, value, mono) {
   const row = document.createElement("p");
   const strong = document.createElement("strong");
   strong.textContent = label + ": ";
   row.appendChild(strong);
-  row.appendChild(document.createTextNode(value));
+
+  if (mono) {
+    const span = document.createElement("span");
+    span.className = "mono";
+    span.textContent = value;
+    row.appendChild(span);
+  } else {
+    row.appendChild(document.createTextNode(value));
+  }
+
   return row;
 }
 
@@ -58,8 +75,8 @@ async function load() {
     const cert = await getJSON(`/deletion-requests/${requestId}/certificate`);
 
     container.innerHTML = "";
-    container.appendChild(field("Deletion request", cert.deletion_request_id));
-    container.appendChild(field("Subject", cert.subject_id));
+    container.appendChild(field("Deletion request", cert.deletion_request_id, true));
+    container.appendChild(field("Subject", cert.subject_id, true));
     container.appendChild(field("Requested at", new Date(cert.requested_at).toLocaleString()));
     container.appendChild(field("Completed at", cert.completed_at ? new Date(cert.completed_at).toLocaleString() : "n/a"));
 
@@ -70,11 +87,11 @@ async function load() {
       cert.audit_entries,
       (entry) => {
         const tr = document.createElement("tr");
-        tr.appendChild(td(entry.document_id));
-        tr.appendChild(td(entry.hash));
-        tr.appendChild(td(entry.previous_hash));
-        tr.appendChild(td(entry.signature));
-        tr.appendChild(td(entry.signed_at));
+        tr.appendChild(tdMono(entry.document_id));
+        tr.appendChild(tdMono(entry.hash));
+        tr.appendChild(tdMono(entry.previous_hash));
+        tr.appendChild(tdMono(entry.signature));
+        tr.appendChild(tdMono(entry.signed_at));
         return tr;
       }
     );
