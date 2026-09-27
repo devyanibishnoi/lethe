@@ -9,6 +9,7 @@ import pandas as pd
 
 from src.db.db import get_connection, insert_subject, insert_document
 from src.eval.generate_corpus import generate_corpus
+from src.eval.search import similarity_search
 from src.logic.hard_delete import hard_delete, TENANT_CONFIG
 from src.logic.erase_subject import erase_subject
 
@@ -56,25 +57,6 @@ def current_corpus_size(tenant_id):
         with conn.cursor() as cur:
             cur.execute(f"SELECT count(*) FROM {partition}")
             return cur.fetchone()[0]
-    finally:
-        conn.close()
-
-
-def similarity_search(tenant_id, query_embedding, k, exclude_id):
-    partition = TENANT_CONFIG[tenant_id]["partition"]
-    conn = get_connection()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                f"""
-                SELECT id FROM {partition}
-                WHERE id != %s
-                ORDER BY embedding <=> %s::vector
-                LIMIT %s
-                """,
-                (exclude_id, query_embedding, k),
-            )
-            return [row[0] for row in cur.fetchall()]
     finally:
         conn.close()
 
@@ -210,7 +192,7 @@ def measure_recall_at_k(tenant_id, deletion_request_id, rows):
     query_ids = {qid for qid, _ in queries}
 
     before_results = {
-        qid: similarity_search(tenant_id, embedding, TOP_K, exclude_id=qid)
+        qid: [r["id"] for r in similarity_search(tenant_id, embedding, TOP_K, exclude_id=qid)]
         for qid, embedding in queries
     }
 
@@ -234,7 +216,7 @@ def measure_recall_at_k(tenant_id, deletion_request_id, rows):
         hard_delete(document_id, tenant_id, deletion_request_id)
 
     after_results = {
-        qid: similarity_search(tenant_id, embedding, TOP_K, exclude_id=qid)
+        qid: [r["id"] for r in similarity_search(tenant_id, embedding, TOP_K, exclude_id=qid)]
         for qid, embedding in queries
     }
 
