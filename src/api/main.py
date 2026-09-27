@@ -36,10 +36,12 @@ def list_subjects():
                     ds.id,
                     ds.display_name,
                     ds.tenant_id,
+                    cs.consented,
                     count(d.id) AS document_count
                 FROM data_subjects ds
+                LEFT JOIN consent_status cs ON cs.subject_id = ds.id
                 LEFT JOIN documents d ON d.subject_id = ds.id
-                GROUP BY ds.id, ds.display_name, ds.tenant_id
+                GROUP BY ds.id, ds.display_name, ds.tenant_id, cs.consented
                 ORDER BY ds.tenant_id, ds.display_name;
                 """
             )
@@ -52,7 +54,8 @@ def list_subjects():
             "subject_id": row[0],
             "display_name": row[1],
             "tenant_id": row[2],
-            "document_count": row[3],
+            "consented": row[3],
+            "document_count": row[4],
         }
         for row in rows
     ]
@@ -180,6 +183,33 @@ def verify_audit_entry(entry_id: str):
 @app.get("/audit-log/verify-chain")
 def verify_audit_chain():
     return {"valid": verify_chain()}
+
+
+@app.post("/audit-log/{entry_id}/corrupt-for-demo")
+def corrupt_audit_entry_for_demo(entry_id: str):
+    """Demo-only: mutates one stored hash so the audit trail page can show
+    verification failing live. Never call this outside a demo/dev session."""
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE deletion_audit_log
+                SET deleted_hash = substring(deleted_hash from 2) || '0'
+                WHERE id = %s
+                RETURNING id;
+                """,
+                (entry_id,),
+            )
+            row = cur.fetchone()
+        conn.commit()
+    finally:
+        conn.close()
+
+    if row is None:
+        raise HTTPException(status_code=404, detail="Audit log entry not found")
+
+    return {"entry_id": entry_id, "corrupted": True}
 
 
 @app.get("/deletion-requests/{request_id}/certificate")
