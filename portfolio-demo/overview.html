@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Lethe — Overview</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div class="sidebar">
+  <div>
+    <a href="index.html" class="brand-link"><div class="brand-name">Lethe</div></a>
+    <div class="brand-tag">Certified Forgetting</div>
+  </div>
+  <nav class="side-nav">
+    <a href="overview.html" class="active">Overview</a>
+    <a href="search.html">Search</a>
+    <a href="erasure.html">Erasure Request</a>
+    <a href="audit.html">Audit Trail</a>
+    <a href="benchmarks.html">Benchmarks</a>
+  </nav>
+</div>
+<main>
+  <h1>Overview</h1>
+  <p class="subtitle">Subjects across both tenants, consent status, and document counts.</p>
+
+  <div class="panel">
+    <div id="subjects-table"></div>
+  </div>
+</main>
+<script src="mock.js"></script>
+<script>
+async function load() {
+  const container = document.getElementById("subjects-table");
+  try {
+    const subjects = await getJSON("/subjects");
+    renderTable(
+      container,
+      ["Subject", "Tenant", "Consent", "Documents"],
+      subjects,
+      (s) => {
+        const tr = document.createElement("tr");
+        tr.appendChild(td(s.display_name));
+        tr.appendChild(td(tenantLabel(s.tenant_id)));
+
+        const consentCell = document.createElement("td");
+        if (s.consented === true) consentCell.appendChild(badge("Consented", "good"));
+        else if (s.consented === false) consentCell.appendChild(badge("Not consented", "bad"));
+        else consentCell.appendChild(badge("Unset", "unknown"));
+        tr.appendChild(consentCell);
+
+        tr.appendChild(td(s.document_count));
+        return tr;
+      }
+    );
+  } catch (err) {
+    container.textContent = "Failed to load subjects: " + err.message;
+  }
+}
+load();
+</script>
+</body>
+</html>

@@ -1,8 +1,14 @@
 from src.db.db import insert_subject, insert_document, get_connection
 from src.eval.generate_corpus import generate_corpus
+from src.logic.hard_delete import hard_delete
 
 TENANT_1 = "00000000-0000-0000-0000-000000000001"
 TENANT_2 = "00000000-0000-0000-0000-000000000002"
+
+# A subject whose data was already (partially) erased, so the Audit Trail page
+# has real, pre-existing chained history to show on first load, instead of an
+# empty table until a visitor submits their own erasure request.
+AUDIT_HISTORY_SUBJECT = (TENANT_1, "Vantage Property Group", True, 8, 5)
 
 # (tenant_id, display_name, consented, document_count)
 # consented=None means no consent_status row at all, to also show the "Unset" badge state.
@@ -29,6 +35,38 @@ def set_consent(subject_id, consented):
         conn.close()
 
 
+def seed_audit_history():
+    tenant_id, name, consented, doc_count, delete_count = AUDIT_HISTORY_SUBJECT
+
+    subject_id = insert_subject(name, tenant_id)
+    set_consent(subject_id, consented)
+
+    document_ids = [
+        insert_document(subject_id, tenant_id, record["content"], record["embedding"])
+        for record in generate_corpus(doc_count)
+    ]
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO deletion_requests (subject_id, status) VALUES (%s, 'completed') RETURNING id",
+                (subject_id,),
+            )
+            deletion_request_id = cur.fetchone()[0]
+        conn.commit()
+    finally:
+        conn.close()
+
+    for document_id in document_ids[:delete_count]:
+        hard_delete(document_id, tenant_id, deletion_request_id)
+
+    print(
+        f"Seeded '{name}': {doc_count} documents, {delete_count} already erased "
+        f"(real signed, chained audit history)"
+    )
+
+
 def seed():
     for tenant_id, name, consented, doc_count in DEMO_SUBJECTS:
         subject_id = insert_subject(name, tenant_id)
@@ -40,6 +78,8 @@ def seed():
             insert_document(subject_id, tenant_id, record["content"], record["embedding"])
 
         print(f"Seeded '{name}': {doc_count} documents, consent={consented}")
+
+    seed_audit_history()
 
 
 if __name__ == "__main__":
