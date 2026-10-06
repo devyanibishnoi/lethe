@@ -226,45 +226,6 @@
     color: var(--text);
   }
 
-  .attribution {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 1.5rem 1.75rem;
-    margin-top: 1.75rem;
-  }
-
-  .attribution p {
-    color: var(--text-dim);
-    font-size: 0.92rem;
-    line-height: 1.65;
-    margin: 0 0 0.75rem;
-  }
-
-  .attribution p:last-child { margin-bottom: 0; }
-
-  .layer-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    margin-bottom: 1.1rem;
-  }
-
-  .layer-pill {
-    font-family: var(--font-mono);
-    font-size: 0.75rem;
-    padding: 0.3rem 0.7rem;
-    border-radius: 4px;
-    border: 1px solid var(--border);
-    color: var(--text-faint);
-  }
-
-  .layer-pill.mine {
-    border-color: var(--accent-dim);
-    color: var(--accent);
-    background: var(--accent-soft);
-  }
-
   .page-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -498,21 +459,6 @@
         <h3>One unexplained signature, and what to do when you can't find the cause</h3>
         <p>During one benchmark run, a single signature out of 71 failed self-verification, with no reproducible root cause after ruling out stale keys, timestamp collisions, and duplicate documents. It didn't recur across two further runs. Rather than leave it silently possible, the signing function now verifies its own signature immediately after producing it and refuses to write the row if that check fails, catching a future occurrence loudly, at the source, instead of discovering a bad row cold during an audit.</p>
       </div>
-    </div>
-  </section>
-
-  <section>
-    <div class="eyebrow">Who built what</div>
-    <h2>A layered team project</h2>
-    <div class="attribution">
-      <div class="layer-row">
-        <span class="layer-pill">Layer 1 — schema, partitioning, indexes</span>
-        <span class="layer-pill">Layer 2 — hard-delete, signing, verification</span>
-        <span class="layer-pill mine">Layer 3 — evaluation (mine)</span>
-        <span class="layer-pill mine">Layer 4 — dashboard (mine)</span>
-      </div>
-      <p>Lethe was built by a three-person team, split by layer rather than by feature, each person owning one kind of work across the whole system rather than one slice of it end to end. Layers 1 and 2, the schema, partitioning, hard-delete, and cryptographic signing, were built by teammates.</p>
-      <p>I own Layers 3 and 4: the synthetic corpus and benchmark suite that produced every number on this page, and the entire compliance dashboard, front to back, the FastAPI layer, all five application pages, the deletion certificate, and this landing page itself.</p>
     </div>
   </section>
 
