@@ -161,7 +161,8 @@ document.getElementById("submit-btn").addEventListener("click", async () => {
 
     const link = document.createElement("a");
     link.href = `certificate.html?request_id=${processed.deletion_request_id}`;
-    link.textContent = "View deletion certificate";
+    link.className = "cert-link";
+    link.textContent = "View deletion certificate →";
     certificateLinkEl.appendChild(link);
 
     loadSubjects();
