@@ -317,3 +317,48 @@ canvas {
   flex: 1;
   min-width: 240px;
 }
+
+/* Below this width, the fixed 232px sidebar leaves barely any room for
+   content (on a 390px phone, less than half the screen), so it collapses
+   into a horizontal top bar instead of staying pinned on the left. */
+@media (max-width: 720px) {
+  body {
+    flex-direction: column;
+  }
+
+  .sidebar {
+    width: 100%;
+    height: auto;
+    position: static;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    padding: 1rem 1.25rem;
+    gap: 0.75rem;
+    border-right: none;
+    border-bottom: 1px solid var(--border-soft);
+  }
+
+  .brand-tag {
+    border-top: none;
+    padding-top: 0;
+    margin-top: 0.15rem;
+  }
+
+  nav.side-nav {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+  }
+
+  nav.side-nav a {
+    padding: 0.35rem 0.6rem;
+    font-size: 0.82rem;
+  }
+
+  main {
+    padding: 1.5rem 1.25rem 3rem;
+    max-width: 100%;
+  }
+}
