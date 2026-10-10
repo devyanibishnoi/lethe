@@ -62,7 +62,19 @@
     <div id="results-table"></div>
   </div>
 </main>
-<script src="app.js"></script>
+<script src="load-backend.js"></script>
+<script>
+(function () {
+  var badge = document.createElement("div");
+  badge.className = "backend-badge";
+  var mode = window.LETHE_BACKEND_MODE === "mock" ? "Mock data" : "Live backend";
+  var toggleTo = window.LETHE_BACKEND_MODE === "mock" ? "real" : "mock";
+  var url = new URL(location.href);
+  url.searchParams.set("backend", toggleTo);
+  badge.innerHTML = mode + " &middot; <a href=\"" + url.search + "\">switch</a>";
+  document.body.appendChild(badge);
+})();
+</script>
 <script>
 const statusEl = document.getElementById("status");
 const resultsEl = document.getElementById("results-table");
