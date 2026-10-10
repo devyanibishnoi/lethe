@@ -134,3 +134,33 @@ HNSW did show real, measurable degradation under this stress (0.9, not 1.0), pro
 **4. Repo and site wording.** Two corrections, both about not overclaiming past what's actually shown. First: this feedback came from Devyani's own self-review of the draft, in chat, not an external reviewer, every "reviewer" reference in this file, `MYLEARNING.md`, and the experiment scripts' docstrings/comments has been corrected to "self-review"; the paper itself will not mention a reviewer. Second: the landing page (`frontend/index.html`) said Lethe "hard-deletes it" and produces an audit record "proving the deletion actually happened", language that overclaimed even before the correction above, and overclaims more now that the index-level erasure finding has been walked back. Reworded the hero copy, the "how it works" line, and both meta description tags to say only what's actually shown: the index is rebuilt from live rows on every deletion (the documented, expected `REINDEX` behavior), and on-disk heap erasure is a separate, documented maintenance step (`VACUUM FULL`), verified at the byte level. Also corrected "bounded" to "not bounded in time" everywhere it described the heap-level gap, "bounded" implies a known ceiling; the honest fact is the bytes persist until something happens to reuse that page, which could be never.
 
 **5. Novelty framing**, a note for whoever writes this section of the paper, not code: `PROBLEM_STATEMENT.md` already cites the prior work this sits next to, Chakraborttii et al. (2026), who demonstrated that deleted embeddings remain physically reconstructible from storage and proposed a basic signed proof-of-deletion. Partitioned vector indexes and hash-chained audit logs are each independently known ideas; neither is the contribution on its own. What's actually new here, and what this round of experiments exists to back up, is the specific combination applied to this problem, *measured*: a partition-aware hard-delete whose cost is empirically shown to be independent of total system size, paired with a tamper-evident audit log, verified not just architecturally but at the literal byte level on disk, against an explicit soft-delete baseline, across a range of tenant configurations. The honest byte-level result above, heap erasure is not bounded in time and the index-level claim had to be walked back once the test methodology itself turned out to be unreliable at scale, is itself evidence of exactly this kind of rigor, prior work asserted the vulnerability existed; this work tested whether the fix actually closes it, including catching and correcting its own test's false confidence, and reported precisely how far it does and doesn't.
+
+## 2026-10-10 — the index residue turned out to be a fixed, fixable bug, not an open problem (Devyani)
+
+Follow-up to the walked-back index-erasure claim above. Three targeted experiments, asked for by name rather than left as "future work":
+
+**Root cause, found and fixed.** `hard_delete()` ran `REINDEX` on both indexes *inside* the same transaction as the `DELETE`, before that transaction committed; `VACUUM` already had to be a separate post-commit step, since `VACUUM` cannot run inside a transaction block at all, but `REINDEX` doesn't have that restriction, so it had been left where it originally was written. Tested a variant (`src/eval/test_reindex_timing_variant.py`) that moves `REINDEX` to run after the `DELETE` commits, alongside `VACUUM`, instead of before it. Across 20 trials: the in-transaction version left the deleted embedding's bytes findable in the rebuilt HNSW/ivfflat index files in 13 of 20 trials (65%, matching the earlier result exactly); the post-commit variant showed 0 of 20 (0%). **Applied the fix to `src/logic/hard_delete.py`**: `REINDEX` for both indexes now runs in the same post-commit, autocommit block as `VACUUM`. Reran the full 20-trial storage-erasure check (`src/eval/test_storage_erasure.py`) against the now-fixed production `hard_delete()` directly, not just the test variant: 0 of 20 (0%) found in both indexes, confirmed in production, not only in an isolated test harness.
+
+This changes the headline finding from "index-level erasure could not be reliably verified at scale, an open problem" to "index-level erasure had a specific, identified, fixable bug, now fixed and reverified at 0/20." The heap-level finding is unchanged, `VACUUM` (plain or now-earlier-running) still only marks space reusable, doesn't overwrite it, `VACUUM FULL` is still the only thing that closes that gap, still not run by default. Flagged to Anshika, this is `src/logic/hard_delete.py` again, same as the ivfflat/VACUUM fix earlier.
+
+**Equal-size timing: current design vs. "DELETE + VACUUM FULL" as a complete alternative.** Added `measure_deletion_path_comparison()`, timing the full end-to-end path (including signing and the audit-log write, not just the raw SQL) for both designs at the same corpus sizes, 3 repeats each:
+
+| Corpus size | Current (`REINDEX` x2 + `VACUUM`), mean | `DELETE` + `VACUUM FULL`, mean |
+|---|---|---|
+| 100 | 101.3 ms | 105.7 ms |
+| 500 | 149.9 ms | 181.5 ms |
+| 1000 | 226.7 ms | 229.6 ms |
+| 5000 | 469.0 ms | 498.7 ms |
+
+The current design is as fast or faster than `DELETE + VACUUM FULL` at every size tested, so there's no latency case for switching, and `VACUUM FULL` still carries the ACCESS EXCLUSIVE lock on the whole partition that the current design never pays. This answers "which design to ship": keep the current three-step design as the per-request path; `VACUUM FULL` stays a periodic maintenance option for closing the heap-level gap on a schedule, not the default.
+
+**VACUUM FULL cost, repeated 20 times per size instead of once**, since it's cheap to repeat (it doesn't change row count, so no need to regrow the corpus between repeats):
+
+| Corpus size | Mean | Min | Max | Std dev |
+|---|---|---|---|---|
+| 100 | 37.2 ms | 28.3 ms | 51.7 ms | 6.7 ms |
+| 500 | 85.4 ms | 73.3 ms | 111.1 ms | 10.6 ms |
+| 1000 | 147.1 ms | 131.0 ms | 169.4 ms | 12.5 ms |
+| 5000 | 475.2 ms | 380.4 ms | 667.1 ms | 88.1 ms |
+
+Real variance, growing with size, at 5000 the range (380-667ms) spans almost 2x, another reason not to treat a single-run `VACUUM FULL` timing as a stable number, and another small data point against relying on it as the routine per-delete path.

@@ -7,11 +7,12 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from src.db.db import get_connection, insert_subject, insert_document
+from src.db.db import get_connection, insert_subject, insert_document, get_document
 from src.eval.generate_corpus import generate_corpus
 from src.eval.search import similarity_search
 from src.logic.hard_delete import hard_delete, TENANT_CONFIG
 from src.logic.erase_subject import erase_subject
+from src.logic.sign_deletion import sign_deletion, save_audit_log
 
 CSV_PATH = Path("docs/benchmark_results.csv")
 PLOTS_DIR = Path("docs/benchmark_plots")
@@ -187,6 +188,9 @@ def measure_index_rebuild_cost(subject_id, tenant_id, rows):
         log_row(rows, "index_rebuild_cost", elapsed_ms, "ms", corpus_size=size)
 
 
+NUM_VACUUM_FULL_REPEATS = 20
+
+
 def measure_vacuum_full_cost(subject_id, tenant_id, rows):
     """Self-review ask: VACUUM FULL rewrites the whole table and rebuilds
     every index on it in the process, so "DELETE + VACUUM FULL" is a
@@ -195,31 +199,104 @@ def measure_vacuum_full_cost(subject_id, tenant_id, rows):
     the storage-erasure test found. Times it at the same corpus sizes as
     measure_index_rebuild_cost for a direct, real tradeoff table, instead of
     just asserting the lock cost grows with size.
+
+    Repeated NUM_VACUUM_FULL_REPEATS times per size, not just once: VACUUM
+    FULL doesn't change the row count (it rewrites the same live rows into
+    a new file), so repeating it on the same corpus is valid and doesn't
+    need regrowing between repeats, cheap enough to get a real range
+    instead of a single-run number.
     """
     partition = TENANT_CONFIG[tenant_id]["partition"]
 
     for size in CORPUS_SIZES:
         grow_corpus_to(subject_id, tenant_id, size)
 
-        conn = get_connection()
-        conn.commit()
-        conn.autocommit = True
-        try:
-            with conn.cursor() as cur:
-                start = time.perf_counter()
-                cur.execute(f"VACUUM FULL {partition}")
-                elapsed_ms = (time.perf_counter() - start) * 1000
-        finally:
-            conn.close()
+        for repeat in range(1, NUM_VACUUM_FULL_REPEATS + 1):
+            conn = get_connection()
+            conn.commit()
+            conn.autocommit = True
+            try:
+                with conn.cursor() as cur:
+                    start = time.perf_counter()
+                    cur.execute(f"VACUUM FULL {partition}")
+                    elapsed_ms = (time.perf_counter() - start) * 1000
+            finally:
+                conn.close()
 
-        log_row(
-            rows,
-            "vacuum_full_cost",
-            elapsed_ms,
-            "ms",
-            corpus_size=size,
-            notes="full table rewrite + implicit rebuild of all indexes on the partition; compare against index_rebuild_cost at the same corpus_size (HNSW-only, non-blocking) to see the tradeoff",
-        )
+            log_row(
+                rows,
+                "vacuum_full_cost",
+                elapsed_ms,
+                "ms",
+                corpus_size=size,
+                notes=f"repeat={repeat}/{NUM_VACUUM_FULL_REPEATS}, full table rewrite + implicit rebuild of all indexes on the partition; compare against index_rebuild_cost at the same corpus_size (HNSW-only, non-blocking) to see the tradeoff",
+            )
+
+
+NUM_PATH_COMPARISON_REPEATS = 3
+
+
+def _delete_vacuum_full_path(document_id, tenant_id, deletion_request_id):
+    """Alternative design to hard_delete(): DELETE + VACUUM FULL instead of
+    DELETE + REINDEX (both indexes) + plain VACUUM. Same signing/audit-log
+    behavior as hard_delete(), so the timing comparison is apples-to-apples
+    end to end, not just "how fast is a bare DELETE".
+    """
+    config = TENANT_CONFIG[tenant_id]
+    partition = config["partition"]
+
+    conn = get_connection()
+    try:
+        document = get_document(document_id, tenant_id)
+        signing_data = sign_deletion(document[3], document_id)
+        save_audit_log(conn, deletion_request_id, document_id, signing_data)
+
+        with conn.cursor() as cur:
+            cur.execute(
+                f"DELETE FROM {partition} WHERE id = %s AND tenant_id = %s",
+                (document_id, tenant_id),
+            )
+        conn.commit()
+
+        conn.autocommit = True
+        with conn.cursor() as cur:
+            cur.execute(f"VACUUM FULL {partition}")
+    finally:
+        conn.close()
+
+
+def measure_deletion_path_comparison(subject_id, tenant_id, deletion_request_id, rows):
+    """Self-review ask: time the current deletion path end to end against
+    the alternative (DELETE + VACUUM FULL) at equal corpus sizes, not just
+    the index-rebuild or vacuum pieces in isolation, to actually inform
+    which design to ship. Repeated NUM_PATH_COMPARISON_REPEATS times per
+    size for a range, not a single-run number.
+    """
+    for size in CORPUS_SIZES:
+        grow_corpus_to(subject_id, tenant_id, size)
+
+        for repeat in range(1, NUM_PATH_COMPARISON_REPEATS + 1):
+            record = generate_corpus(1)[0]
+            doc_id = insert_document(subject_id, tenant_id, record["content"], record["embedding"])
+            start = time.perf_counter()
+            hard_delete(doc_id, tenant_id, deletion_request_id)
+            elapsed_ms = (time.perf_counter() - start) * 1000
+            log_row(
+                rows, "deletion_path_current", elapsed_ms, "ms", corpus_size=size,
+                notes=f"repeat={repeat}/{NUM_PATH_COMPARISON_REPEATS}, DELETE + REINDEX(HNSW) + REINDEX(ivfflat) + plain VACUUM, the current hard_delete() design",
+            )
+            grow_corpus_to(subject_id, tenant_id, size)
+
+            record = generate_corpus(1)[0]
+            doc_id = insert_document(subject_id, tenant_id, record["content"], record["embedding"])
+            start = time.perf_counter()
+            _delete_vacuum_full_path(doc_id, tenant_id, deletion_request_id)
+            elapsed_ms = (time.perf_counter() - start) * 1000
+            log_row(
+                rows, "deletion_path_vacuum_full", elapsed_ms, "ms", corpus_size=size,
+                notes=f"repeat={repeat}/{NUM_PATH_COMPARISON_REPEATS}, DELETE + VACUUM FULL, the alternative design that also closes the heap-level gap",
+            )
+            grow_corpus_to(subject_id, tenant_id, size)
 
 
 def setup_unpartitioned_benchmark_table():

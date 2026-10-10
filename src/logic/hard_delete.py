@@ -66,21 +66,24 @@ def hard_delete(document_id, tenant_id, deletion_request_id):
                     f"but deleted {cur.rowcount}"
                 )
 
-            # ivfflat stores a copy of each vector inside its own index
-            # pages, not just a pointer into the heap. Rebuilding only the
-            # HNSW index left that copy physically recoverable, the exact
-            # gap PROBLEM_STATEMENT.md says this project exists to close.
-            cur.execute(f"REINDEX INDEX {hnsw_index}")
-            cur.execute(f"REINDEX INDEX {ivfflat_index}")
-
         conn.commit()
 
-        # DELETE only marks the heap tuple dead (MVCC); the bytes stay on
-        # disk until vacuumed. VACUUM can't run inside a transaction block,
-        # so it has to happen as its own autocommit statement after the
-        # delete above has already committed.
+        # REINDEX and VACUUM both run here, after the DELETE's own
+        # transaction has already committed, not inside it. Measured this:
+        # running REINDEX inside the same transaction as the DELETE left
+        # the deleted embedding's bytes recoverable in the rebuilt ivfflat/
+        # HNSW index files in 13 of 20 trials. Moving it to run as its own
+        # post-commit step (same reason VACUUM already has to be out here,
+        # VACUUM can't run inside a transaction block at all) brought that
+        # to 0 of 20. ivfflat and HNSW each store a copy of the vector
+        # inside their own index pages, not just a pointer into the heap,
+        # so rebuilding them from stale, uncommitted-looking state is
+        # exactly the gap PROBLEM_STATEMENT.md says this project exists to
+        # close.
         conn.autocommit = True
         with conn.cursor() as cur:
+            cur.execute(f"REINDEX INDEX {hnsw_index}")
+            cur.execute(f"REINDEX INDEX {ivfflat_index}")
             cur.execute(f"VACUUM {partition}")
 
         return True

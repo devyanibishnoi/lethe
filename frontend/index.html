@@ -318,10 +318,10 @@
   <h1>Making "your data has been deleted" a provable claim, not a promise.</h1>
   <p class="lede">
     Lethe is a database-native deletion layer for RAG knowledge bases. Most vector databases only
-    soft-delete on request, the embedding stays physically recoverable on disk. Lethe rebuilds the
-    vector index, for only the affected partition, from the documents that remain after every
-    deletion, and produces a cryptographically signed, hash-chained audit record of the deletion.
-    Verified at the byte level: the deleted row's bytes persist in the underlying table until a
+    soft-delete on request, the embedding stays physically recoverable on disk. Lethe erases the
+    embedding from its vector index copies on every deletion, for only the affected partition, and
+    produces a cryptographically signed, hash-chained audit record of the deletion. Verified at the
+    byte level: index copies are gone immediately, the underlying table row's bytes persist until a
     slower, separate maintenance pass (VACUUM FULL), not automatically on every delete.
   </p>
   <div class="cta-row">
@@ -441,12 +441,17 @@
   <section>
     <div class="eyebrow">What actually happened while building this</div>
     <h2>Engineering notes</h2>
-    <p>Three real findings from building and benchmarking this, kept rather than cleaned up out of the story.</p>
+    <p>Four real findings from building and benchmarking this, kept rather than cleaned up out of the story.</p>
     <div class="finding-list">
       <div class="finding">
         <span class="finding-tag bug">Bug found</span>
         <h3>A one-character difference that breaks a cryptographic signature</h3>
         <p>The deletion certificate embeds a timestamp inside the signed message. Python's default string formatting for a datetime and the JSON API's default encoding differ by exactly one character, a space versus a <code>T</code>. ECDSA verifies an exact byte string, so that was enough to make an otherwise-valid signature fail re-verification. Fixed by making the certificate emit the literal string that was actually signed, not a value that merely represents the same timestamp.</p>
+      </div>
+      <div class="finding">
+        <span class="finding-tag bug">Bug found</span>
+        <h3>Rebuilding an index inside the same transaction as the delete left it recoverable</h3>
+        <p>A raw byte search of the actual index files on disk, not just a query through the database, found the deleted embedding still physically present in 13 of 20 trials. The cause: the index rebuild ran inside the same transaction as the delete, before it committed. Moving it to run as its own step after commit, the way a <code>VACUUM</code> already had to, brought that to 0 of 20, reproduced twice: once as an isolated test, once against the real deletion path directly.</p>
       </div>
       <div class="finding">
         <span class="finding-tag perf">Performance insight</span>
