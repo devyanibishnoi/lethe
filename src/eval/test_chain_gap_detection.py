@@ -1,4 +1,4 @@
-"""Reviewer-requested experiment: delete an audit entry from the middle of
+"""Self-review experiment: delete an audit entry from the middle of
 the chain (not just mutate a hash, as corrupt-for-demo already does) and
 confirm verify_chain() catches the resulting gap.
 

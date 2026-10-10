@@ -4,9 +4,9 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Lethe · Certified Forgetting</title>
-<meta name="description" content="A database-native deletion layer that hard-deletes from a vector index and produces a cryptographically signed, hash-chained audit record proving it happened." />
+<meta name="description" content="A database-native deletion layer that rebuilds its vector index from only live rows on every deletion, produces a signed hash-chained audit record, and documents exactly what further maintenance step full on-disk erasure needs." />
 <meta property="og:title" content="Lethe — Certified Forgetting" />
-<meta property="og:description" content="Making 'your data has been deleted' a provable claim, not a promise. Partitioned hard-delete, hash-chained audit log, live demo." />
+<meta property="og:description" content="Partition-scoped index rebuild on every deletion. On-disk erasure via a documented maintenance step, verified at the byte level. Hash-chained audit log, live demo." />
 <meta property="og:type" content="website" />
 <meta name="twitter:card" content="summary" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230a0b0f'/%3E%3Crect x='7' y='13' width='12' height='7' rx='3.5' fill='none' stroke='%23c9a668' stroke-width='2.2'/%3E%3Crect x='13' y='13' width='12' height='7' rx='3.5' fill='none' stroke='%23c9a668' stroke-width='2.2'/%3E%3C/svg%3E" />
@@ -318,9 +318,11 @@
   <h1>Making "your data has been deleted" a provable claim, not a promise.</h1>
   <p class="lede">
     Lethe is a database-native deletion layer for RAG knowledge bases. Most vector databases only
-    soft-delete on request, the embedding stays physically recoverable on disk. Lethe hard-deletes
-    it, rebuilds only the affected partition, and produces a cryptographically signed, hash-chained
-    audit record proving the deletion actually happened.
+    soft-delete on request, the embedding stays physically recoverable on disk. Lethe rebuilds the
+    vector index, for only the affected partition, from the documents that remain after every
+    deletion, and produces a cryptographically signed, hash-chained audit record of the deletion.
+    Verified at the byte level: the deleted row's bytes persist in the underlying table until a
+    slower, separate maintenance pass (VACUUM FULL), not automatically on every delete.
   </p>
   <div class="cta-row">
     <button class="cta-primary" onclick="window.location.href='overview.html'">Enter the live system <span class="arrow">→</span></button>
@@ -359,8 +361,8 @@
     <div class="eyebrow">The approach</div>
     <h2>How Lethe closes it</h2>
     <p>
-      Efficient hard-delete at scale, and proof that it happened, without a full index rebuild every
-      time.
+      A partition-scoped index rebuild on every deletion, a signed audit trail, and a documented
+      maintenance step for full on-disk erasure, without a full index rebuild every time.
     </p>
     <div class="concept-grid">
       <div class="concept-card">
