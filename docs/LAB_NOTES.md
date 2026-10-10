@@ -2,6 +2,16 @@
 
 Shared, running research log. Dated entries, what was tried, what happened, actual numbers, failed attempts included. This becomes the methodology and results write-up later, see the Research Paper Prep section of `docs/CHECKLIST.md` for how these entries map onto paper sections.
 
+## Testbed
+
+All benchmarks in this file ran on a single development laptop, not a dedicated server or cloud instance, worth stating plainly in the paper's methodology section as a limitation on how far the absolute latency numbers generalize (the *relative* comparisons, partitioned vs. unpartitioned, before vs. after a fix, are what actually matter and aren't testbed-specific).
+
+- **CPU:** 12th Gen Intel Core i5-1235U, 10 cores (12 logical processors with hyperthreading), laptop-class, not a server or cloud VM CPU.
+- **RAM:** 16 GB total on the host; the Docker Desktop VM (WSL2 backend) that actually runs PostgreSQL is allocated 12 CPUs and ~7.6 GB RAM, the `lethe-db-1` container itself has no additional per-container CPU/memory limit beyond that.
+- **OS:** Windows 11 Home, 64-bit, with PostgreSQL running inside a Linux container (`pgvector/pgvector:pg16` on Docker Desktop), not natively on Windows.
+- **Storage:** the container's data directory lives on a Docker named volume (not a bind mount), backed by whatever the host's own disk is, no dedicated or network-attached storage.
+- Nothing else was deliberately running on the machine during benchmark runs, but this was not a fully isolated, single-purpose benchmarking rig, ordinary background OS/browser/IDE activity was present, which is part of why repeated-trial ranges (see the 2026-10-10 entries below) matter more here than they would on a quieter dedicated host.
+
 ---
 
 ## 2026-09-26 — Layer 3 environment and synthetic corpus (Devyani)
@@ -164,3 +174,20 @@ The current design is as fast or faster than `DELETE + VACUUM FULL` at every siz
 | 5000 | 475.2 ms | 380.4 ms | 667.1 ms | 88.1 ms |
 
 Real variance, growing with size, at 5000 the range (380-667ms) spans almost 2x, another reason not to treat a single-run `VACUUM FULL` timing as a stable number, and another small data point against relying on it as the routine per-delete path.
+
+**The design comparison had a gap: the `DELETE + VACUUM FULL` path's index files had never actually been checked at the byte level**, only timed. The equal-size latency table above says nothing about whether that path's HNSW/ivfflat files are actually clean, it was an assumption (VACUUM FULL rebuilds every index on the table as a side effect of the rewrite, so it *should* be clean) never verified the same way the current design's fix was. Ran the same 20-trial raw-byte-search methodology (`src/eval/test_vacuum_full_storage_variant.py`) against `DELETE + VACUUM FULL` as the full deletion path: **0 of 20 found in the heap, 0 of 20 in HNSW, 0 of 20 in ivfflat.** Complete, immediate erasure everywhere, confirmed, not assumed.
+
+That completes the actual design tradeoff, now fully measured on both sides instead of partially:
+
+| | Current (fixed): `REINDEX` x2 + `VACUUM`, post-commit | `DELETE` + `VACUUM FULL` |
+|---|---|---|
+| Index-level erasure | Immediate, verified (0/20) | Immediate, verified (0/20) |
+| Heap-level erasure | Not bounded in time (bytes persist until page reuse) | Immediate, verified (0/20) |
+| Latency at 5000 docs | 469 ms | 499 ms |
+| Blocks concurrent access to the tenant? | No | Yes, ACCESS EXCLUSIVE for the duration |
+
+So `VACUUM FULL` isn't just "an option for a periodic maintenance sweep", it is the only one of the two designs that gets a complete erasure guarantee on every single delete, and it does so at essentially the same latency as the current design. The real cost isn't time, it's exclusivity: every other read and write to that tenant's documents blocks for the duration of each individual delete, which is a very different cost model for a live, concurrent system than "slightly slower". This is a genuine design decision with no free answer, not something to resolve by just picking the design with the better-looking number in one dimension, worth stating as an open tradeoff in the paper rather than picking a winner it hasn't actually earned.
+
+**Reran the main latency and cascading-erasure benchmarks after the REINDEX fix**, since the numbers currently in this file (and wherever they'd been cited) predate the fix, same operations, different internal ordering. Post-fix: single hard-delete latency 132.1ms (vs. 141.5-146.5ms across two pre-fix runs), cascading 50-document erasure 6118.2ms (vs. 5417.6-6289.6ms pre-fix). Both land inside the pre-fix range, no regression, which is exactly what should happen, the fix reorders *when* `REINDEX` runs, it doesn't add or remove work, so latency shouldn't meaningfully change, and it didn't. That caveat (benchmarks predate the fix) is now removed, the cited numbers reflect the current code.
+
+**Testbed, added above as its own section** since it had been a placeholder: single development laptop (12th Gen Intel Core i5-1235U, 10 cores/12 threads, 16GB RAM), PostgreSQL running inside a Docker container (Docker Desktop/WSL2, 12 CPUs and ~7.6GB allocated to the VM, no additional per-container limit), not a dedicated server or cloud instance. Stated as a limitation on the absolute numbers; the relative comparisons (partitioned vs. unpartitioned, before vs. after a fix) are what the paper's claims actually rest on, and those don't depend on the specific hardware.
