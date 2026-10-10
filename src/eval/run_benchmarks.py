@@ -28,6 +28,14 @@ RECALL_DELETE_BATCH_SIZE = 20
 UNPARTITIONED_TABLE = "documents_unpartitioned_benchmark"
 UNPARTITIONED_INDEX = "documents_unpartitioned_benchmark_hnsw_idx"
 
+TESTED_TENANT_SIZE = 500
+SCALING_CONFIGS = {
+    2: [1500],
+    4: [300, 900, 1800],
+    8: [200, 400, 600, 800, 1000, 1200, 1400],
+    16: [100, 150, 200, 250, 300, 400, 500, 600, 700, 800, 900, 1000, 1100, 1200, 1300],
+}
+
 
 def log_row(rows, metric, value, unit, corpus_size=None, k=None, notes=""):
     rows.append(
@@ -261,6 +269,106 @@ def measure_unpartitioned_rebuild_cost(rows):
             conn.close()
 
 
+def _make_scaling_table(name):
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(f"DROP TABLE IF EXISTS {name}")
+            cur.execute(
+                f"""
+                CREATE TABLE {name} (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+                    tenant_no INT NOT NULL,
+                    embedding VECTOR (384) NOT NULL
+                )
+                """
+            )
+            cur.execute(f"CREATE INDEX {name}_hnsw_idx ON {name} USING hnsw (embedding vector_cosine_ops)")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _fill_table(name, tenant_no, count):
+    records = generate_corpus(count)
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            for record in records:
+                cur.execute(
+                    f"INSERT INTO {name} (tenant_no, embedding) VALUES (%s, %s)",
+                    (tenant_no, record["embedding"]),
+                )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _reindex_cost(index_name):
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            start = time.perf_counter()
+            cur.execute(f"REINDEX INDEX {index_name}")
+            elapsed_ms = (time.perf_counter() - start) * 1000
+        conn.commit()
+    finally:
+        conn.close()
+    return elapsed_ms
+
+
+def measure_tenant_scaling(rows):
+    """Reviewer's ask: the earlier partitioned-vs-unpartitioned comparison
+    only used 2 equal-sized tenants, so the 2x gap was just "twice the rows."
+    This repeats it at 2, 4, 8, and 16 tenants with deliberately uneven
+    sizes, holding one "tenant under test" fixed at 500 docs throughout, to
+    show the partitioned cost for that tenant stays flat no matter how many
+    other tenants exist or how large they are, while an unpartitioned
+    design's cost keeps climbing with total system size.
+    """
+    for num_tenants, other_sizes in SCALING_CONFIGS.items():
+        tested_table = "documents_scaling_tested"
+        _make_scaling_table(tested_table)
+        _fill_table(tested_table, 0, TESTED_TENANT_SIZE)
+
+        combined_table = "documents_scaling_combined"
+        _make_scaling_table(combined_table)
+        _fill_table(combined_table, 0, TESTED_TENANT_SIZE)
+        for i, size in enumerate(other_sizes, start=1):
+            _fill_table(combined_table, i, size)
+
+        total_size = TESTED_TENANT_SIZE + sum(other_sizes)
+
+        partitioned_ms = _reindex_cost(f"{tested_table}_hnsw_idx")
+        unpartitioned_ms = _reindex_cost(f"{combined_table}_hnsw_idx")
+
+        log_row(
+            rows,
+            "partitioned_rebuild_at_scale",
+            partitioned_ms,
+            "ms",
+            corpus_size=TESTED_TENANT_SIZE,
+            notes=f"num_tenants={num_tenants}, total_system_size={total_size}, rebuilding only the 500-doc tenant under test",
+        )
+        log_row(
+            rows,
+            "unpartitioned_rebuild_at_scale",
+            unpartitioned_ms,
+            "ms",
+            corpus_size=total_size,
+            notes=f"num_tenants={num_tenants}, one combined index over all tenants' {total_size} docs, uneven sizes",
+        )
+
+        conn = get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(f"DROP TABLE IF EXISTS {tested_table}")
+                cur.execute(f"DROP TABLE IF EXISTS {combined_table}")
+            conn.commit()
+        finally:
+            conn.close()
+
+
 def measure_recall_vs_exact(tenant_id, rows):
     partition = TENANT_CONFIG[tenant_id]["partition"]
 
@@ -439,6 +547,21 @@ def plot_results():
         plt.savefig(PLOTS_DIR / f"deletion_latency_{run_stamp}.png")
         plt.close()
 
+    scaling = df[df["metric"].isin(["partitioned_rebuild_at_scale", "unpartitioned_rebuild_at_scale"])].copy()
+    if not scaling.empty:
+        scaling["num_tenants"] = scaling["notes"].str.extract(r"num_tenants=(\d+)").astype(int)
+        scaling = scaling.sort_values("num_tenants")
+        plt.figure()
+        for metric, group in scaling.groupby("metric"):
+            label = "Partitioned (rebuild only the affected tenant)" if metric == "partitioned_rebuild_at_scale" else "Unpartitioned (rebuild the whole combined index)"
+            plt.plot(group["num_tenants"], group["value"], marker="o", label=label)
+        plt.xlabel("Number of tenants in the system (uneven sizes)")
+        plt.ylabel("Rebuild time for the same 500-doc tenant's deletion (ms)")
+        plt.title("Partitioned vs. unpartitioned rebuild cost as the system grows")
+        plt.legend()
+        plt.savefig(PLOTS_DIR / f"tenant_scaling_{run_stamp}.png")
+        plt.close()
+
 
 def main():
     rows = []
@@ -461,6 +584,9 @@ def main():
 
         print("Measuring unpartitioned (combined-tenant) index rebuild cost for comparison...")
         measure_unpartitioned_rebuild_cost(rows)
+
+        print(f"Measuring partitioned vs. unpartitioned rebuild cost at scale: {sorted(SCALING_CONFIGS)} tenants, uneven sizes...")
+        measure_tenant_scaling(rows)
 
         print("Measuring recall@k before/after deletion...")
         measure_recall_at_k(BENCHMARK_TENANT, deletion_request_id, rows)
