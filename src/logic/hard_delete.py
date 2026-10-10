@@ -5,10 +5,12 @@ TENANT_CONFIG = {
     "00000000-0000-0000-0000-000000000001": {
         "partition": "documents_tenant_1",
         "hnsw_index": "documents_tenant_1_hnsw_idx",
+        "ivfflat_index": "documents_tenant_1_ivfflat_idx",
     },
     "00000000-0000-0000-0000-000000000002": {
         "partition": "documents_tenant_2",
         "hnsw_index": "documents_tenant_2_hnsw_idx",
+        "ivfflat_index": "documents_tenant_2_ivfflat_idx",
     },
 }
 
@@ -22,6 +24,7 @@ def hard_delete(document_id, tenant_id, deletion_request_id):
     config = TENANT_CONFIG[tenant_id]
     partition = config["partition"]
     hnsw_index = config["hnsw_index"]
+    ivfflat_index = config["ivfflat_index"]
 
     conn = get_connection()
 
@@ -62,13 +65,29 @@ def hard_delete(document_id, tenant_id, deletion_request_id):
                     f"Expected to delete 1 document, "
                     f"but deleted {cur.rowcount}"
                 )
+
+            # ivfflat stores a copy of each vector inside its own index
+            # pages, not just a pointer into the heap. Rebuilding only the
+            # HNSW index left that copy physically recoverable, the exact
+            # gap PROBLEM_STATEMENT.md says this project exists to close.
             cur.execute(f"REINDEX INDEX {hnsw_index}")
+            cur.execute(f"REINDEX INDEX {ivfflat_index}")
 
         conn.commit()
+
+        # DELETE only marks the heap tuple dead (MVCC); the bytes stay on
+        # disk until vacuumed. VACUUM can't run inside a transaction block,
+        # so it has to happen as its own autocommit statement after the
+        # delete above has already committed.
+        conn.autocommit = True
+        with conn.cursor() as cur:
+            cur.execute(f"VACUUM {partition}")
+
         return True
 
     except Exception:
-        conn.rollback()
+        if not conn.autocommit:
+            conn.rollback()
         raise
 
     finally:

@@ -18,11 +18,15 @@ PLOTS_DIR = Path("docs/benchmark_plots")
 CSV_COLUMNS = ["run_timestamp", "metric", "value", "unit", "corpus_size", "k", "notes"]
 
 BENCHMARK_TENANT = "00000000-0000-0000-0000-000000000001"
+OTHER_TENANT = "00000000-0000-0000-0000-000000000002"
 CORPUS_SIZES = [100, 500, 1000, 5000]
 ERASURE_BATCH_SIZE = 50
 NUM_QUERY_VECTORS = 20
 TOP_K = 10
 RECALL_DELETE_BATCH_SIZE = 20
+
+UNPARTITIONED_TABLE = "documents_unpartitioned_benchmark"
+UNPARTITIONED_INDEX = "documents_unpartitioned_benchmark_hnsw_idx"
 
 
 def log_row(rows, metric, value, unit, corpus_size=None, k=None, notes=""):
@@ -175,6 +179,166 @@ def measure_index_rebuild_cost(subject_id, tenant_id, rows):
         log_row(rows, "index_rebuild_cost", elapsed_ms, "ms", corpus_size=size)
 
 
+def setup_unpartitioned_benchmark_table():
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(f"DROP TABLE IF EXISTS {UNPARTITIONED_TABLE}")
+            cur.execute(
+                f"""
+                CREATE TABLE {UNPARTITIONED_TABLE} (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid (),
+                    tenant_id UUID NOT NULL,
+                    embedding VECTOR (384) NOT NULL
+                )
+                """
+            )
+            cur.execute(
+                f"CREATE INDEX {UNPARTITIONED_INDEX} ON {UNPARTITIONED_TABLE} "
+                f"USING hnsw (embedding vector_cosine_ops)"
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def measure_unpartitioned_rebuild_cost(rows):
+    """Comparison baseline for measure_index_rebuild_cost: one HNSW index
+    spanning both tenants' data combined, instead of a separate per-tenant
+    partitioned index. At total size 2*N (both tenants at N each), this
+    rebuilds everyone's data to process a single tenant's deletion, the
+    cost the partitioned design avoids.
+    """
+    setup_unpartitioned_benchmark_table()
+
+    for size in CORPUS_SIZES:
+        total_size = size * 2
+        records = generate_corpus(total_size)
+
+        conn = get_connection()
+        try:
+            with conn.cursor() as cur:
+                for i, record in enumerate(records):
+                    tenant = BENCHMARK_TENANT if i % 2 == 0 else OTHER_TENANT
+                    cur.execute(
+                        f"INSERT INTO {UNPARTITIONED_TABLE} (tenant_id, embedding) VALUES (%s, %s)",
+                        (tenant, record["embedding"]),
+                    )
+            conn.commit()
+        finally:
+            conn.close()
+
+        conn = get_connection()
+        try:
+            with conn.cursor() as cur:
+                start = time.perf_counter()
+                cur.execute(f"REINDEX INDEX {UNPARTITIONED_INDEX}")
+                elapsed_ms = (time.perf_counter() - start) * 1000
+            conn.commit()
+        finally:
+            conn.close()
+
+        log_row(
+            rows,
+            "unpartitioned_index_rebuild_cost",
+            elapsed_ms,
+            "ms",
+            corpus_size=total_size,
+            notes=(
+                f"single combined HNSW index over both tenants, "
+                f"{size} docs/tenant; compare against index_rebuild_cost "
+                f"corpus_size={size} (the partitioned rebuild for the same "
+                f"per-tenant volume)"
+            ),
+        )
+
+        conn = get_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(f"TRUNCATE {UNPARTITIONED_TABLE}")
+            conn.commit()
+        finally:
+            conn.close()
+
+
+def measure_recall_vs_exact(tenant_id, rows):
+    partition = TENANT_CONFIG[tenant_id]["partition"]
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"SELECT id, embedding FROM {partition} ORDER BY random() LIMIT %s",
+                (NUM_QUERY_VECTORS,),
+            )
+            queries = [(row[0], row[1].to_list()) for row in cur.fetchall()]
+
+            # Which index the planner actually picks for a live query, logged
+            # for transparency since pgvector doesn't let us pin one by hint.
+            cur.execute(
+                f"EXPLAIN SELECT id FROM {partition} ORDER BY embedding <=> %s::vector LIMIT %s",
+                (queries[0][1], TOP_K),
+            )
+            plan = "\n".join(row[0] for row in cur.fetchall())
+            ann_index_used = (
+                "ivfflat" if "ivfflat" in plan else "hnsw" if "hnsw" in plan else "seqscan"
+            )
+    finally:
+        conn.close()
+
+    recalls = []
+
+    exact_conn = get_connection()
+    ann_conn = get_connection()
+
+    try:
+        with exact_conn.cursor() as cur:
+            cur.execute("SET enable_indexscan = off")
+            cur.execute("SET enable_bitmapscan = off")
+
+        for qid, embedding in queries:
+            with exact_conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    SELECT id FROM {partition}
+                    WHERE id != %s
+                    ORDER BY embedding <=> %s::vector
+                    LIMIT %s
+                    """,
+                    (qid, embedding, TOP_K),
+                )
+                exact_ids = {row[0] for row in cur.fetchall()}
+
+            with ann_conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    SELECT id FROM {partition}
+                    WHERE id != %s
+                    ORDER BY embedding <=> %s::vector
+                    LIMIT %s
+                    """,
+                    (qid, embedding, TOP_K),
+                )
+                ann_ids = {row[0] for row in cur.fetchall()}
+
+            recalls.append(len(exact_ids & ann_ids) / TOP_K)
+    finally:
+        exact_conn.close()
+        ann_conn.close()
+
+    avg_recall = statistics.mean(recalls)
+
+    log_row(
+        rows,
+        "recall_vs_exact_knn",
+        avg_recall,
+        "fraction",
+        corpus_size=current_corpus_size(tenant_id),
+        k=TOP_K,
+        notes=f"num_queries={NUM_QUERY_VECTORS}, ann_index_used={ann_index_used}",
+    )
+
+
 def measure_recall_at_k(tenant_id, deletion_request_id, rows):
     partition = TENANT_CONFIG[tenant_id]["partition"]
 
@@ -295,8 +459,14 @@ def main():
         print(f"Measuring index rebuild cost across corpus sizes {CORPUS_SIZES}...")
         measure_index_rebuild_cost(subject_id, BENCHMARK_TENANT, rows)
 
+        print("Measuring unpartitioned (combined-tenant) index rebuild cost for comparison...")
+        measure_unpartitioned_rebuild_cost(rows)
+
         print("Measuring recall@k before/after deletion...")
         measure_recall_at_k(BENCHMARK_TENANT, deletion_request_id, rows)
+
+        print("Measuring ANN recall@k against exact nearest-neighbour search...")
+        measure_recall_vs_exact(BENCHMARK_TENANT, rows)
 
     finally:
         if rows:

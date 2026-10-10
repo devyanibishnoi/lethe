@@ -20,3 +20,30 @@ run_timestamp,metric,value,unit,corpus_size,k,notes
 2026-09-27T06:40:49.403326+00:00,index_rebuild_cost,120.94299995806068,ms,1000,,
 2026-09-27T06:43:16.514210+00:00,index_rebuild_cost,333.1830999813974,ms,5000,,
 2026-09-27T06:43:27.778158+00:00,recall_at_k,0.995,fraction,4980,10,"num_queries=20, num_deleted=20"
+2026-10-10T07:13:34.314294+00:00,hard_delete_latency,96.5497000142932,ms,18,,
+2026-10-10T07:13:40.894750+00:00,cascading_erasure_latency,5011.618599994108,ms,50,,documents_deleted=50
+2026-10-10T07:13:43.648611+00:00,index_rebuild_cost,7.979599991813302,ms,100,,
+2026-10-10T07:13:56.946621+00:00,index_rebuild_cost,50.64979987218976,ms,500,,
+2026-10-10T07:14:16.256211+00:00,index_rebuild_cost,139.02519992552698,ms,1000,,
+2026-10-10T07:17:00.959118+00:00,index_rebuild_cost,372.8097998537123,ms,5000,,
+2026-10-10T07:17:18.284301+00:00,recall_at_k,0.91,fraction,4980,10,"num_queries=20, num_deleted=20"
+2026-10-10T07:21:24.122483+00:00,hard_delete_latency,146.50070015341043,ms,18,,
+2026-10-10T07:21:32.122577+00:00,cascading_erasure_latency,5417.552100028843,ms,50,,documents_deleted=50
+2026-10-10T07:21:35.346276+00:00,index_rebuild_cost,10.338100139051676,ms,100,,
+2026-10-10T07:21:52.213977+00:00,index_rebuild_cost,57.740099960938096,ms,500,,
+2026-10-10T07:22:14.381039+00:00,index_rebuild_cost,112.30010003782809,ms,1000,,
+2026-10-10T07:25:38.679630+00:00,index_rebuild_cost,346.0687999613583,ms,5000,,
+2026-10-10T07:25:49.817753+00:00,recall_at_k,0.99,fraction,4980,10,"num_queries=20, num_deleted=20"
+2026-10-10T07:25:50.187378+00:00,recall_vs_exact_knn,1.0,fraction,4980,10,"num_queries=20, ann_index_used=ivfflat"
+2026-10-10T07:28:06.879284+00:00,hard_delete_latency,141.4653998799622,ms,17,,
+2026-10-10T07:28:15.297958+00:00,cascading_erasure_latency,6289.563199970871,ms,50,,documents_deleted=50
+2026-10-10T07:28:18.852554+00:00,index_rebuild_cost,8.71940003708005,ms,100,,
+2026-10-10T07:28:36.922582+00:00,index_rebuild_cost,69.30249999277294,ms,500,,
+2026-10-10T07:28:59.905578+00:00,index_rebuild_cost,108.1795000936836,ms,1000,,
+2026-10-10T07:32:15.085113+00:00,index_rebuild_cost,309.3390001449734,ms,5000,,
+2026-10-10T07:32:17.076638+00:00,unpartitioned_index_rebuild_cost,21.174099994823337,ms,200,,"single combined HNSW index over both tenants, 100 docs/tenant; compare against index_rebuild_cost corpus_size=100 (the partitioned rebuild for the same per-tenant volume)"
+2026-10-10T07:32:28.024085+00:00,unpartitioned_index_rebuild_cost,130.75280003249645,ms,1000,,"single combined HNSW index over both tenants, 500 docs/tenant; compare against index_rebuild_cost corpus_size=500 (the partitioned rebuild for the same per-tenant volume)"
+2026-10-10T07:32:53.015816+00:00,unpartitioned_index_rebuild_cost,236.4205999765545,ms,2000,,"single combined HNSW index over both tenants, 1000 docs/tenant; compare against index_rebuild_cost corpus_size=1000 (the partitioned rebuild for the same per-tenant volume)"
+2026-10-10T07:35:12.141895+00:00,unpartitioned_index_rebuild_cost,691.7276999447495,ms,10000,,"single combined HNSW index over both tenants, 5000 docs/tenant; compare against index_rebuild_cost corpus_size=5000 (the partitioned rebuild for the same per-tenant volume)"
+2026-10-10T07:35:24.865006+00:00,recall_at_k,0.98,fraction,4980,10,"num_queries=20, num_deleted=20"
+2026-10-10T07:35:25.304944+00:00,recall_vs_exact_knn,1.0,fraction,4980,10,"num_queries=20, ann_index_used=ivfflat"
