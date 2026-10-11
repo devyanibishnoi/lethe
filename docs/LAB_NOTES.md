@@ -202,3 +202,19 @@ So the real comparison isn't "current design never blocks, `VACUUM FULL` blocks"
 **Reran the main latency and cascading-erasure benchmarks after the REINDEX fix**, since the numbers currently in this file (and wherever they'd been cited) predate the fix, same operations, different internal ordering. Post-fix: single hard-delete latency 132.1ms (vs. 141.5-146.5ms across two pre-fix runs), cascading 50-document erasure 6118.2ms (vs. 5417.6-6289.6ms pre-fix). Both land inside the pre-fix range, no regression, which is exactly what should happen, the fix reorders *when* `REINDEX` runs, it doesn't add or remove work, so latency shouldn't meaningfully change, and it didn't. That caveat (benchmarks predate the fix) is now removed, the cited numbers reflect the current code.
 
 **Testbed, added above as its own section** since it had been a placeholder: single development laptop (12th Gen Intel Core i5-1235U, 10 cores/12 threads, 16GB RAM), PostgreSQL running inside a Docker container (Docker Desktop/WSL2, 12 CPUs and ~7.6GB allocated to the VM, no additional per-container limit), not a dedicated server or cloud instance. Stated as a limitation on the absolute numbers; the relative comparisons (partitioned vs. unpartitioned, before vs. after a fix) are what the paper's claims actually rest on, and those don't depend on the specific hardware.
+
+## 2026-10-11 — switched hard_delete() to DELETE + VACUUM FULL, the paper and the repo now agree (Devyani)
+
+Once the concurrency test showed both designs pay essentially the same blocking cost, the "keep the three-step design, VACUUM FULL is just an optional maintenance sweep" framing stopped being defensible, there was no longer a concurrency reason to prefer it. Switched `hard_delete()` in `src/logic/hard_delete.py`: `DELETE` + two `REINDEX` calls + plain `VACUUM` replaced with `DELETE` + a single `VACUUM FULL`. Simpler code (one statement instead of three) and, more importantly, it closes the one gap that was still open, the heap-level bytes that plain `VACUUM` left recoverable indefinitely.
+
+Verified the switch for real, not just read through: smoke-tested a single deletion first, then reran the full 20-trial storage-erasure check (`src/eval/test_storage_erasure.py`) against the actual production `hard_delete()`, same methodology used for every other result in this investigation, raw byte search of the real files on disk.
+
+| Location | Found after `hard_delete()`, 20 trials |
+|---|---|
+| Heap | 0/20 |
+| HNSW index | 0/20 |
+| ivfflat index | 0/20 |
+
+Complete, across the board. This is the first point in the whole investigation where heap, HNSW, and ivfflat are *all* confirmed clean after a single production deletion call, previously it was always index-clean/heap-not, now it's both. The one remaining caveat worth stating plainly in the paper rather than glossing over: `VACUUM FULL` needs roughly double the disk space temporarily, since it writes a full second copy of the table before dropping the old one, not stress-tested at a scale where that would matter here, but a real operational consideration for anyone running this at production volume, distinct from the latency and locking costs that were measured.
+
+`verify_chain()` still `True` after the switch, demo data unaffected. Flagged to Anshika again, this is the third real change to `hard_delete.py` this investigation (ivfflat+VACUUM fix, REINDEX timing fix, now this), worth a proper sit-down with her rather than another drive-by note, given how much the function's actual behavior has moved since she last touched it.
