@@ -252,3 +252,5 @@ run_timestamp,metric,value,unit,corpus_size,k,notes
 2026-10-11T05:32:54.646327+00:00,storage_erasure_soft_delete_after_rate,0.4,fraction,5,,"relation=documents_tenant_1_hnsw_idx, fraction of trials where the pattern was STILL found after a plain DELETE with no reindex/vacuum, expected ~1.0 (bytes survive, this is the soft-delete baseline)"
 2026-10-11T05:32:54.646334+00:00,storage_erasure_soft_delete_before_rate,0.4,fraction,5,,"relation=documents_tenant_1_ivfflat_idx, fraction of trials where the pattern was found BEFORE any delete, expected ~1.0, a sanity check on the search methodology's own false-negative rate"
 2026-10-11T05:32:54.646340+00:00,storage_erasure_soft_delete_after_rate,0.4,fraction,5,,"relation=documents_tenant_1_ivfflat_idx, fraction of trials where the pattern was STILL found after a plain DELETE with no reindex/vacuum, expected ~1.0 (bytes survive, this is the soft-delete baseline)"
+2026-10-11T05:59:33.347573+00:00,hard_delete_latency,125.65020006150007,ms,57,,
+2026-10-11T05:59:41.087534+00:00,cascading_erasure_latency,5744.731300044805,ms,50,,documents_deleted=50
