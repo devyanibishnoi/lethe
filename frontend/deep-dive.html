@@ -1,0 +1,1768 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lethe · The Debrief</title>
+<meta name="description" content="A deep, from-scratch walkthrough of how Lethe's provable deletion layer works: the schema, the hard-delete and signing path, the evaluation methodology, and what the live dashboard shows." />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230a0b0f'/%3E%3Crect x='7' y='13' width='12' height='7' rx='3.5' fill='none' stroke='%23c9a668' stroke-width='2.2'/%3E%3Crect x='13' y='13' width='12' height='7' rx='3.5' fill='none' stroke='%23c9a668' stroke-width='2.2'/%3E%3C/svg%3E" />
+<style>
+  :root {
+    --bg: #faf8f4;
+    --panel: #ffffff;
+    --panel-2: #f3f0ea;
+    --border: #e2ddd1;
+    --border-soft: #ece8e0;
+    --text: #1c1a17;
+    --text-dim: #5c574c;
+    --text-faint: #8a8374;
+    --accent: #a37c3f;
+    --accent-dim: #c9a668;
+    --accent-soft: rgba(163, 124, 63, 0.08);
+    --accent-soft-strong: rgba(163, 124, 63, 0.16);
+    --good: #2f8f5b;
+    --good-soft: rgba(47, 143, 91, 0.1);
+    --bad: #b8402e;
+    --bad-soft: rgba(184, 64, 46, 0.1);
+    --font-display: ui-serif, Georgia, "Iowan Old Style", "Times New Roman", serif;
+    --font-body: -apple-system, "Segoe UI", system-ui, sans-serif;
+    --font-mono: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0a0b0f;
+      --panel: #14161d;
+      --panel-2: #191c24;
+      --border: #262830;
+      --border-soft: #1c1e26;
+      --text: #e9e9ec;
+      --text-dim: #9297a3;
+      --text-faint: #5c6170;
+      --accent: #c9a668;
+      --accent-dim: #8a7248;
+      --accent-soft: rgba(201, 166, 104, 0.1);
+      --accent-soft-strong: rgba(201, 166, 104, 0.18);
+      --good: #6fbf8e;
+      --good-soft: rgba(111, 191, 142, 0.12);
+      --bad: #d1705f;
+      --bad-soft: rgba(209, 112, 95, 0.12);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg: #0a0b0f;
+    --panel: #14161d;
+    --panel-2: #191c24;
+    --border: #262830;
+    --border-soft: #1c1e26;
+    --text: #e9e9ec;
+    --text-dim: #9297a3;
+    --text-faint: #5c6170;
+    --accent: #c9a668;
+    --accent-dim: #8a7248;
+    --accent-soft: rgba(201, 166, 104, 0.1);
+    --accent-soft-strong: rgba(201, 166, 104, 0.18);
+    --good: #6fbf8e;
+    --good-soft: rgba(111, 191, 142, 0.12);
+    --bad: #d1705f;
+    --bad-soft: rgba(209, 112, 95, 0.12);
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-body);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  a { color: var(--accent); }
+
+  .shell {
+    display: flex;
+    max-width: 1280px;
+    margin: 0 auto;
+    min-height: 100vh;
+  }
+
+  /* ---------- Sidebar ---------- */
+
+  .sidebar {
+    position: sticky;
+    top: 0;
+    align-self: flex-start;
+    height: 100vh;
+    width: 260px;
+    flex-shrink: 0;
+    border-right: 1px solid var(--border-soft);
+    padding: 2rem 1.5rem;
+    overflow-y: auto;
+  }
+
+  .sidebar .mark {
+    font-family: var(--font-display);
+    font-size: 1.3rem;
+    margin-bottom: 0.15rem;
+  }
+
+  .sidebar .mark-sub {
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    margin-bottom: 2rem;
+  }
+
+  .nav-group {
+    margin-bottom: 1.5rem;
+  }
+
+  .nav-group-label {
+    font-family: var(--font-mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    margin-bottom: 0.6rem;
+  }
+
+  .nav-link {
+    display: block;
+    padding: 0.4rem 0.6rem;
+    margin: 0 -0.6rem 0.1rem;
+    border-radius: 5px;
+    font-size: 0.86rem;
+    color: var(--text-dim);
+    text-decoration: none;
+    line-height: 1.4;
+    border-left: 2px solid transparent;
+    transition: background 0.15s, color 0.15s;
+  }
+
+  .nav-link:hover {
+    background: var(--accent-soft);
+    color: var(--text);
+  }
+
+  /* ---------- Main ---------- */
+
+  main {
+    flex: 1;
+    min-width: 0;
+    padding: 3rem 3.5rem 8rem;
+  }
+
+  .hero {
+    margin-bottom: 4rem;
+  }
+
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 0.75rem;
+  }
+
+  .hero h1 {
+    font-family: var(--font-display);
+    font-weight: 500;
+    font-size: 2.1rem;
+    line-height: 1.2;
+    margin: 0 0 1rem;
+    text-wrap: balance;
+  }
+
+  .hero .lede {
+    font-size: 1.08rem;
+    line-height: 1.65;
+    color: var(--text-dim);
+    max-width: 68ch;
+  }
+
+  .pitch-box {
+    margin-top: 1.75rem;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 6px;
+    padding: 1.25rem 1.5rem;
+    max-width: 68ch;
+  }
+
+  .pitch-box .label {
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 0.5rem;
+  }
+
+  .pitch-box p {
+    margin: 0;
+    font-size: 1.02rem;
+    line-height: 1.6;
+    font-style: italic;
+    color: var(--text);
+  }
+
+  section.layer {
+    padding-top: 4rem;
+    margin-top: 4rem;
+    border-top: 1px solid var(--border-soft);
+    scroll-margin-top: 2rem;
+  }
+
+  section.layer:first-of-type {
+    border-top: none;
+  }
+
+  .layer-head {
+    display: flex;
+    align-items: baseline;
+    gap: 1rem;
+    margin-bottom: 0.5rem;
+    flex-wrap: wrap;
+  }
+
+  .layer-num {
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    color: var(--accent);
+  }
+
+  .layer-owner {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--text-faint);
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 0.2rem 0.7rem;
+  }
+
+  .layer h2 {
+    font-family: var(--font-display);
+    font-weight: 500;
+    font-size: 1.7rem;
+    margin: 0.3rem 0 0.75rem;
+    text-wrap: balance;
+  }
+
+  .layer > .intro {
+    font-size: 1rem;
+    line-height: 1.65;
+    color: var(--text-dim);
+    max-width: 68ch;
+    margin-bottom: 2rem;
+  }
+
+  h3.sub {
+    font-family: var(--font-display);
+    font-weight: 500;
+    font-size: 1.25rem;
+    margin: 2.5rem 0 0.9rem;
+  }
+
+  h4.sub2 {
+    font-family: var(--font-body);
+    font-weight: 700;
+    font-size: 0.98rem;
+    margin: 1.75rem 0 0.6rem;
+    color: var(--text);
+  }
+
+  p, li {
+    font-size: 0.96rem;
+    line-height: 1.68;
+    color: var(--text-dim);
+    max-width: 72ch;
+  }
+
+  p strong, li strong {
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  ul, ol {
+    padding-left: 1.3rem;
+    margin: 0.75rem 0;
+  }
+
+  li { margin-bottom: 0.5rem; }
+
+  code {
+    font-family: var(--font-mono);
+    font-size: 0.86em;
+    background: var(--panel-2);
+    border: 1px solid var(--border-soft);
+    border-radius: 3px;
+    padding: 0.05em 0.35em;
+    color: var(--text);
+  }
+
+  .codeblock-wrap {
+    overflow-x: auto;
+    margin: 1rem 0 1.5rem;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: var(--panel-2);
+  }
+
+  pre {
+    margin: 0;
+    padding: 1rem 1.25rem;
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    line-height: 1.55;
+    color: var(--text-dim);
+    white-space: pre;
+  }
+
+  pre .kw { color: var(--accent); }
+  pre .str { color: var(--good); }
+  pre .com { color: var(--text-faint); font-style: italic; }
+
+  .filecap {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--text-faint);
+    padding: 0.6rem 1.25rem 0;
+    display: block;
+  }
+
+  /* ---------- Decision cards (the "why it changed" ledger pattern) ---------- */
+
+  .decision {
+    position: relative;
+    margin: 1.25rem 0;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--border);
+    border-radius: 6px;
+    padding: 1.25rem 1.5rem;
+    max-width: 72ch;
+  }
+
+  .decision.broke { border-left-color: var(--bad); }
+  .decision.fixed { border-left-color: var(--good); }
+
+  .decision .tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    margin-bottom: 0.7rem;
+  }
+
+  .decision.broke .tag { background: var(--bad-soft); color: var(--bad); }
+  .decision.fixed .tag { background: var(--good-soft); color: var(--good); }
+
+  .decision h4 {
+    font-family: var(--font-body);
+    font-size: 1rem;
+    font-weight: 700;
+    margin: 0 0 0.6rem;
+    color: var(--text);
+  }
+
+  .decision .figure {
+    font-family: var(--font-body);
+    font-weight: 700;
+    font-size: 1.4rem;
+    color: var(--text);
+  }
+
+  .decision.broke .figure { color: var(--bad); }
+  .decision.fixed .figure { color: var(--good); }
+
+  .decision p { margin: 0.5rem 0 0; }
+
+  /* ---------- Data table ---------- */
+
+  .table-wrap {
+    overflow-x: auto;
+    margin: 1.25rem 0 1.75rem;
+  }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 440px;
+    font-size: 0.86rem;
+  }
+
+  th {
+    text-align: left;
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    font-weight: 500;
+    padding: 0.6rem 1rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  td {
+    padding: 0.6rem 1rem;
+    border-bottom: 1px solid var(--border-soft);
+    color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
+  }
+
+  td:first-child { color: var(--text); font-weight: 500; font-variant-numeric: normal; }
+
+  tr:last-child td { border-bottom: none; }
+
+  td.good { color: var(--good); }
+  td.bad { color: var(--bad); }
+
+  /* ---------- Callouts ---------- */
+
+  .note {
+    background: var(--accent-soft);
+    border: 1px solid var(--accent-soft-strong);
+    border-radius: 6px;
+    padding: 1rem 1.25rem;
+    margin: 1.25rem 0;
+    max-width: 72ch;
+  }
+
+  .note .label {
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 0.4rem;
+  }
+
+  .note p { margin: 0; color: var(--text); font-size: 0.92rem; }
+
+  /* ---------- Site-page cards ---------- */
+
+  .site-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 1rem;
+    margin: 1.5rem 0 2rem;
+  }
+
+  .site-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.1rem 1.3rem;
+  }
+
+  .site-card h4 {
+    font-family: var(--font-body);
+    font-size: 0.92rem;
+    font-weight: 700;
+    margin: 0 0 0.5rem;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .site-card .path {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--text-faint);
+    font-weight: 400;
+  }
+
+  .site-card p {
+    font-size: 0.86rem;
+    margin: 0;
+  }
+
+  .stat-mini-row {
+    display: flex;
+    gap: 1rem;
+    margin: 1.5rem 0 2rem;
+    flex-wrap: wrap;
+  }
+
+  .stat-mini {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1rem 1.25rem;
+    flex: 1;
+    min-width: 170px;
+  }
+
+  .stat-mini .v {
+    font-family: var(--font-body);
+    font-weight: 700;
+    font-size: 1.5rem;
+    color: var(--text);
+  }
+
+  .stat-mini .l {
+    font-size: 0.78rem;
+    color: var(--text-dim);
+    margin-top: 0.3rem;
+    line-height: 1.4;
+  }
+
+  .stat-mini .src {
+    font-family: var(--font-mono);
+    font-size: 0.66rem;
+    color: var(--text-faint);
+    margin-top: 0.4rem;
+  }
+
+  footer {
+    margin-top: 5rem;
+    padding-top: 2rem;
+    border-top: 1px solid var(--border-soft);
+    font-size: 0.82rem;
+    color: var(--text-faint);
+  }
+
+  @media (max-width: 880px) {
+    .shell { flex-direction: column; }
+    .sidebar {
+      position: static;
+      width: auto;
+      height: auto;
+      border-right: none;
+      border-bottom: 1px solid var(--border-soft);
+    }
+    main { padding: 2rem 1.25rem 5rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="shell">
+  <nav class="sidebar">
+    <a href="index.html" style="text-decoration:none;color:inherit;">
+      <div class="mark">Lethe</div>
+    </a>
+    <div class="mark-sub">The Debrief</div>
+
+    <div class="nav-group">
+      <a class="nav-link" href="index.html">&larr; Back to the live site</a>
+    </div>
+
+    <div class="nav-group">
+      <a class="nav-link" href="#pitch">The pitch</a>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-group-label">Layer 1</div>
+      <a class="nav-link" href="#hridya">Schema &amp; partitioning</a>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-group-label">Layer 2</div>
+      <a class="nav-link" href="#anshika">Hard delete, signing, verification</a>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-group-label">Layer 3</div>
+      <a class="nav-link" href="#devyani">Evaluation &amp; the investigation</a>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-group-label">Layer 4</div>
+      <a class="nav-link" href="#site">The site, explained</a>
+    </div>
+  </nav>
+
+  <main>
+    <div class="hero" id="pitch">
+      <div class="eyebrow">A database-native deletion layer for RAG knowledge bases</div>
+      <h1>Making "your data has been deleted" a claim you can actually check, not one you have to take on faith.</h1>
+      <p class="lede">
+        This walks the whole system in the order data actually moves through it: the schema, the
+        delete path, the proof that the delete really happened, then the live demo that puts all of
+        it in front of you. Every section covers not just what the code does, but every decision
+        that got made, what didn't work the first time, and what replaced it, including the places
+        where an early assumption turned out to be wrong and got corrected in the open rather than
+        quietly edited away.
+      </p>
+
+      <div class="pitch-box">
+        <div class="label">The one-breath pitch</div>
+        <p>"Most vector databases soft-delete, the embedding is still physically recoverable on
+        disk after you 'delete' it. Lethe partitions the index by tenant so a deletion only ever
+        touches the affected shard, actually erases the data with a verified rewrite, and produces
+        a cryptographically signed, hash-chained audit record, then we proved all of that at the
+        byte level instead of just asserting it."</p>
+      </div>
+
+      <h3 class="sub">What problem this is actually solving</h3>
+      <p>
+        Retrieval-Augmented Generation (RAG) systems ground an LLM's answers in a private
+        collection of documents, stored as vector embeddings so the system can find whichever
+        documents are semantically relevant to a question. When someone asks for their data to be
+        deleted, under GDPR's "right to erasure" or just as a matter of trust, most of these
+        systems do something much weaker than it sounds: they mark the record as deleted in a way
+        the application won't show you again, while the actual embedding, the numbers that encode
+        what that document meant, is often still sitting untouched on disk. A soft delete isn't a
+        delete, it's a promise that the application layer will politely look away.
+      </p>
+      <p>
+        Lethe is an attempt to close that gap at the database layer itself, not just at the
+        application layer: partition the data so a deletion is cheap and scoped, actually rewrite
+        the physical storage so the bytes are gone, sign and chain every deletion into a
+        tamper-evident log so the claim "this was deleted" is independently checkable, and then,
+        the part most such systems skip entirely, go and check it. Open the actual files Postgres
+        writes to disk and look for the bytes directly, the same technique someone trying to
+        recover "deleted" data would use, turned around and used as a test instead.
+      </p>
+      <p>
+        Worth being precise about what's actually new here, since it isn't either individual piece.
+        Partitioned vector indexes aren't new. Hash-chained, tamper-evident logs aren't new. Prior
+        work (<code>PROBLEM_STATEMENT.md</code> cites Chakraborttii et al., 2026) already
+        demonstrated that deleted embeddings remain physically reconstructible from storage and
+        proposed a basic signed proof-of-deletion. What that work stopped short of, and what this
+        project exists to do, is combine partition-aware hard-delete with a tamper-evident log
+        <em>and then actually verify, at the byte level, that the fix closes the gap</em>, including
+        catching and correcting its own test's false confidence along the way rather than reporting
+        the first clean-looking number. The measurement and the self-correction are the
+        contribution, not either architectural piece in isolation.
+      </p>
+
+      <h3 class="sub">How to read this document</h3>
+      <p>
+        It's organized the way the system is actually built, four layers, each with its own job:
+        the data model and how it's physically laid out, the logic that performs and proves a
+        deletion, the evaluation work that measures and verifies all of it, and the live system
+        that makes all three tangible. Reading top to bottom tells the whole story in order; the
+        sidebar is there for jumping straight to whichever layer you want.
+      </p>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- LAYER 1 -->
+    <!-- ============================================================ -->
+    <section class="layer" id="hridya">
+      <div class="layer-head">
+        <span class="layer-num">01</span>
+        <span class="layer-owner">Foundations</span>
+      </div>
+      <h2>The schema, and why it's shaped this way</h2>
+      <p class="intro">
+        Five tables. The one that matters most is <code>documents</code>, because it's the only
+        one that's <strong>partitioned</strong>, and partitioning is the entire architectural bet
+        this project makes: a deletion should only ever cost you the size of the affected tenant's
+        data, never the size of the whole system.
+      </p>
+
+      <h3 class="sub">First, what a vector embedding actually is, before any of the schema makes sense</h3>
+      <p>
+        A vector embedding is a list of numbers, 384 of them here, that represents the
+        <em>meaning</em> of a piece of text, produced by running it through a trained language
+        model. Two sentences that mean similar things end up as two lists of numbers that are
+        geometrically close together, two sentences about unrelated topics end up far apart. That
+        closeness is what makes semantic search possible: "find documents about this topic" becomes
+        "find the stored vectors nearest to this query's vector," a geometry problem instead of a
+        keyword-matching problem.
+      </p>
+      <p>
+        "Close together" here specifically means <strong>cosine distance</strong> (the schema's
+        indexes are built <code>vector_cosine_ops</code>): imagine every embedding as an arrow
+        pointing from the origin out into 384-dimensional space. Cosine distance measures the
+        <em>angle</em> between two arrows, not how long they are, two vectors pointing in nearly
+        the same direction are "close" regardless of magnitude. That's deliberate for text: it's
+        the direction (the meaning) that should matter, not an accident of how long the embedding
+        happens to be.
+      </p>
+      <div class="note">
+        <div class="label">Why you need an index at all, not just a loop</div>
+        <p>
+          The honest way to find the true nearest neighbors is to compare a query against
+          <em>every single stored vector</em> and sort by distance, an "exact" or "brute-force"
+          search. That's correct, but it gets slow as the corpus grows, every query has to touch
+          every row. <strong>Approximate Nearest Neighbor (ANN)</strong> indexes, HNSW and ivfflat
+          both are this, trade a small, usually negligible amount of accuracy for not having to
+          check everything, by pre-organizing the vectors at insert time into a structure that lets
+          a query skip most of the corpus. "Approximate" is the key word, and it's exactly why
+          Layer 3 has a whole experiment dedicated to measuring <em>how</em> approximate, rather
+          than assuming "close enough" by default.
+        </p>
+      </div>
+
+      <h3 class="sub">The five tables, what each one is actually for</h3>
+      <ul>
+        <li><code>data_subjects</code> &mdash; a real person or organization whose data exists in the system. Has a <code>tenant_id</code>, because the same system serves multiple tenants and a subject belongs to exactly one.</li>
+        <li><code>consent_status</code> &mdash; one row per subject, whether they've consented. One-to-one with the subject, cascades on delete.</li>
+        <li><code>deletion_requests</code> &mdash; "subject X wants to be forgotten." Starts <code>pending</code>, flips to <code>completed</code> once every document is actually gone. This is the thing a user submits; it's not the same thing as a single document deletion.</li>
+        <li><code>deletion_audit_log</code> &mdash; the proof. One row per document actually erased, cryptographically signed, hash-chained to the row before it. Covered in full depth in Layer 2 below.</li>
+        <li><code>documents</code> &mdash; the actual content and its embedding. This is the one that's partitioned.</li>
+      </ul>
+
+      <h3 class="sub">Why partition by tenant specifically</h3>
+      <p>
+        <code>documents</code> is declared <code>PARTITION BY LIST (tenant_id)</code>, with
+        <code>documents_tenant_1</code> and <code>documents_tenant_2</code> as real, separate
+        physical tables underneath it, each with its own HNSW index and its own ivfflat index.
+        Not a view, not a filter, an <strong>actual separate table on disk</strong> per tenant.
+      </p>
+      <p>
+        That single design choice is what makes the whole "deletion doesn't cost the whole system"
+        claim true. When <code>hard_delete()</code> rebuilds a tenant's index, it's physically
+        rebuilding <em>that tenant's table</em>, there is no code path by which it could touch a
+        different tenant's data, because the data isn't in the same file.
+      </p>
+
+      <div class="note">
+        <div class="label">This got measured, not just asserted</div>
+        <p>
+          The benchmarks in Layer 3 held one tenant fixed at 500 documents and varied how many other
+          tenants (2, 4, 8, 16) and how much other data existed around it. The fixed tenant's own
+          rebuild cost stayed flat, ~52&ndash;71ms, regardless of how many other tenants existed.
+          A single shared index covering everyone's data at the same total size cost 223ms at 2
+          tenants, climbing to 932ms at 16, a gap that widens as the system grows, exactly the
+          partitioning payoff this schema is betting on. See the Layer 3 section for the full table.
+        </p>
+      </div>
+
+      <h3 class="sub">The composite primary key, and why it has to be that way</h3>
+      <div class="codeblock-wrap">
+        <span class="filecap">src/db/schema.sql</span>
+        <pre>PRIMARY KEY (id, tenant_id),
+FOREIGN KEY (subject_id) REFERENCES data_subjects (id) ON DELETE CASCADE</pre>
+      </div>
+      <p>
+        Postgres requires the partition key to be part of every unique constraint on a partitioned
+        table. <code>id</code> alone can't be the primary key here, because Postgres can't
+        guarantee uniqueness of just <code>id</code> across partitions it enforces independently
+        per-partition. <code>(id, tenant_id)</code> satisfies the constraint, and it's harmless in
+        practice since every real lookup already knows which tenant it's working in.
+      </p>
+
+      <h3 class="sub">Two index types on the exact same column, why both</h3>
+      <div class="codeblock-wrap">
+        <span class="filecap">src/db/schema.sql</span>
+        <pre>-- HNSW: cosine similarity
+CREATE INDEX ... ON documents_tenant_1 USING hnsw (embedding vector_cosine_ops);
+
+-- IVFFlat: cosine similarity
+CREATE INDEX ... ON documents_tenant_1 USING ivfflat (embedding vector_cosine_ops)
+WITH (lists = 10);</pre>
+      </div>
+      <p>
+        <strong>HNSW</strong> (Hierarchical Navigable Small World) builds a multi-layer graph at
+        insert time: a sparse top layer with few, well-spread-out connections for jumping long
+        distances quickly, and progressively denser layers below for fine-grained navigation, not
+        unlike a highway system feeding down into local streets. A query starts at the sparse top
+        layer, jumps toward the right neighborhood fast, then descends layer by layer, refining its
+        position, without ever touching most of the graph. That structure is what gives HNSW strong
+        recall and fast queries once built, but every insertion has to find its correct place in
+        every relevant layer, so building and rebuilding the graph gets more expensive as it grows,
+        not just proportionally (measured directly: going from 1,000 to 5,000 documents, 5&times;
+        the data, made HNSW rebuild cost roughly 8&times; more expensive, not 5&times;, since each
+        new node has more existing structure to navigate and connect into).
+      </p>
+      <p>
+        <strong>ivfflat</strong> (Inverted File with Flat compression) takes a completely different
+        approach: at build time, it runs a clustering step (similar to k-means) that groups all the
+        vectors into <code>lists</code> buckets (10, here) based on which are near each other. A
+        query first figures out which bucket(s) its own vector would fall into, then only compares
+        against the vectors actually stored in those buckets, never the whole table. Cheaper to
+        build than a graph, but its accuracy is directly, explicitly tunable at query time via a
+        <code>probes</code> setting, how many of the nearest buckets to actually search, rather than
+        just the single closest one. More probes means checking more buckets, which costs more time
+        but catches neighbors that happened to land just across a bucket boundary. Layer 3's stress
+        test deliberately sets <code>probes = 1</code> specifically to see what happens when that
+        knob is turned all the way down.
+      </p>
+      <p>
+        Having both on the same column means the query planner picks whichever it estimates
+        cheaper for a given query, confirmed directly via <code>EXPLAIN</code> during the recall
+        testing in Layer 3, it genuinely does pick differently depending on data size and shape.
+        The tradeoff this creates: there's no way to force a search to use one specific index type
+        without disabling the other, which came up directly when testing recall, see Layer 3.
+      </p>
+
+      <h3 class="sub">Why <code>vector(384)</code></h3>
+      <p>
+        384 is not an arbitrary choice, it's the output dimensionality of
+        <code>all-MiniLM-L6-v2</code>, the sentence-embedding model the corpus generator uses
+        (<code>src/eval/generate_corpus.py</code>). The column width has to match whatever model
+        actually produces the vectors, pick a different model, the schema has to change with it.
+      </p>
+
+      <h3 class="sub">Why LIST partitioning specifically, not RANGE or HASH</h3>
+      <p>
+        Postgres gives you three partitioning strategies. <strong>RANGE</strong> is for continuous
+        values with a natural ordering, dates, sizes, where a row belongs in a partition based on
+        falling between two bounds, think "January's rows, February's rows." <strong>HASH</strong>
+        is for spreading data evenly across N partitions when there's no meaningful grouping to
+        preserve, you just want load balanced. <strong>LIST</strong> is for a small, known,
+        discrete set of values where each partition corresponds to one specific value or a specific
+        group of values, exactly what a tenant ID is: not a range, not something to hash away, a
+        real, enumerable identity you want to keep physically separate and nameable. That's why
+        <code>documents_tenant_1</code> and <code>documents_tenant_2</code> exist as literal,
+        individually-named tables tied to one specific tenant UUID each
+        (<code>FOR VALUES IN ('00000000-...-001')</code>), not an opaque hash bucket you'd have to
+        look up to even know which tenant lives where.
+      </p>
+
+      <h3 class="sub">Partition pruning, and a deliberate shortcut around it</h3>
+      <p>
+        Querying the parent <code>documents</code> table with a <code>WHERE tenant_id = ...</code>
+        clause, Postgres's planner can prove at parse time that only one partition could possibly
+        match, and skips scanning the others entirely, that's "partition pruning," the mechanism
+        that makes partitioning actually pay off instead of just being organizational.
+      </p>
+      <p>
+        <code>hard_delete()</code> doesn't even rely on pruning, it goes a step further:
+        <code>TENANT_CONFIG</code> (in <code>src/logic/hard_delete.py</code>) maps each tenant UUID
+        directly to its child table's literal name, <code>documents_tenant_1</code>, and every
+        statement, the <code>DELETE</code>, the <code>VACUUM FULL</code>, targets that child table
+        by name directly, never the parent. No planner decision involved at all, just addressing
+        the one physical table that could possibly be affected. That's the most literal form the
+        partitioning guarantee can take: the code doesn't trust the planner to prune correctly, it
+        makes it structurally impossible to touch the wrong tenant's table.
+      </p>
+
+      <h3 class="sub">The <code>lists = 10</code> parameter on ivfflat</h3>
+      <p>
+        ivfflat's accuracy and speed both come from how it buckets vectors into <code>lists</code>
+        clusters (a k-means-like clustering step at index-build time); a commonly cited heuristic is
+        roughly the square root of the expected row count. At the corpus sizes this project
+        actually tests against (hundreds to a few thousand documents per tenant), 10 lists is a
+        reasonable fit; it's a parameter that would need to grow if the corpus grew substantially,
+        it's not self-tuning.
+      </p>
+      <div class="note">
+        <div class="label">Why applying <code>schema.sql</code> on an empty database logs a "low recall" notice</div>
+        <p>
+          <code>CREATE INDEX ... USING ivfflat</code> on a table with zero or very few rows warns
+          that recall will be poor, because the clustering step has nothing meaningful to cluster
+          yet, a handful of points can't form 10 sensible buckets. Expected, not an error, resolves
+          itself once real data is loaded and the index gets rebuilt against it.
+        </p>
+      </div>
+
+      <div class="note">
+        <div class="label">An open question this document can't answer on its own</div>
+        <p>
+          <code>documents</code> has a <code>deleted BOOLEAN NOT NULL DEFAULT FALSE</code> column.
+          It gets written on insert (<code>src/db/db.py</code>), but nothing in the active delete
+          path ever reads or sets it to <code>TRUE</code>, <code>hard_delete()</code> performs a
+          real <code>DELETE</code>, not a flag flip. Most likely an earlier soft-delete design that
+          got superseded once the hard-delete path was built, left in place rather than removed,
+          but that's an inference, not a confirmed answer, worth tracking down against the schema's
+          own history rather than guessing.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============================================================ -->
+    <!-- LAYER 2 — ANSHIKA -->
+    <!-- ============================================================ -->
+    <section class="layer" id="anshika">
+      <div class="layer-head">
+        <span class="layer-num">02</span>
+        <span class="layer-owner">Core logic</span>
+      </div>
+      <h2>Hard delete, signing, and the chain of proof</h2>
+      <p class="intro">
+        This is the file that changed three separate times over the course of this investigation,
+        <code>src/logic/hard_delete.py</code>, and every change was caused by actually testing a
+        claim the earlier version was making and finding it false. Walking through the final code
+        first, then the full history of why it looks like this now.
+      </p>
+
+      <h3 class="sub">Signing a deletion, step by step</h3>
+      <div class="codeblock-wrap">
+        <span class="filecap">src/logic/sign_deletion.py</span>
+        <pre>def sign_deletion(content, document_id):
+    content_hash = hash_content(content)          <span class="com"># SHA-256 of the document's own content</span>
+    previous_hash = get_previous_hash()            <span class="com"># the last entry's hash, or a genesis hash</span>
+    signed_at = get_current_timestamp()
+
+    message = build_message(document_id, content_hash, signed_at, previous_hash)
+    signature = sign_message(message, private_key)  <span class="com"># ECDSA over SHA-256</span>
+
+    <span class="com"># self-check before this ever reaches the database (see note below)</span>
+    if not verify_signature(message, signature, public_key):
+        raise RuntimeError(...)
+
+    return {content_hash, signature, signed_at, previous_hash}</pre>
+      </div>
+      <p>
+        The message that actually gets signed is <code>f"{document_id}, {content_hash}, {signed_at}, {previous_hash}"</code>,
+        encoded to bytes. <strong>Every one of those four fields has to be reproduced byte-for-byte
+        identical</strong> anywhere this gets re-verified later, ECDSA verifies an exact byte
+        string, not a semantically-equivalent one. That exactness requirement is not theoretical,
+        it caused a real bug, covered below.
+      </p>
+
+      <h3 class="sub">The hash chain</h3>
+      <p>
+        <code>previous_hash</code> is the previous audit log row's <code>deleted_hash</code>
+        (fetched via <code>ORDER BY signed_at DESC LIMIT 1</code>). The very first entry ever
+        chains to a genesis value, 69 zero characters. Every subsequent entry points backward, so
+        the whole table forms one single chain across every tenant and every subject, not a
+        separate chain per subject. Corrupting or deleting any one row breaks the link for
+        whatever comes after it.
+      </p>
+
+      <h3 class="sub">Verifying it</h3>
+      <div class="codeblock-wrap">
+        <span class="filecap">src/logic/verify_deletion.py</span>
+        <pre>def verify_chain():
+    <span class="com"># every row, oldest to newest</span>
+    for row in rows:
+        if previous_hash != expected_previous_hash:
+            return False          <span class="com"># link broken, stop immediately</span>
+        if not verify_deletion(...):
+            return False          <span class="com"># signature invalid, stop immediately</span>
+        expected_previous_hash = content_hash
+    return True</pre>
+      </div>
+      <div class="note">
+        <div class="label">Know this limitation before you're asked about it</div>
+        <p>
+          <code>verify_chain()</code> returns a single boolean. It short-circuits on the very
+          first break it finds, which means it can tell you <em>something</em> is wrong, but not
+          <em>where</em>. Confirmed directly in testing: once one row anywhere in the whole table
+          is bad, the function returns <code>False</code> forever after, with no way to
+          distinguish "the same old problem" from "something new just broke." A real
+          incident-response version would need to report the first bad entry's position, not just
+          a boolean. This is flagged as a known gap, not hidden.
+        </p>
+      </div>
+
+      <h3 class="sub">The final <code>hard_delete()</code>, and what it actually does now</h3>
+      <div class="codeblock-wrap">
+        <span class="filecap">src/logic/hard_delete.py</span>
+        <pre>document = get_document(document_id, tenant_id)
+signing_data = sign_deletion(document[3], document_id)
+save_audit_log(conn, deletion_request_id, document_id, signing_data)
+
+cur.execute(f"DELETE FROM {partition} WHERE id = %s AND tenant_id = %s", ...)
+conn.commit()
+
+conn.autocommit = True
+cur.execute(f"VACUUM FULL {partition}")   <span class="com"># one statement, closes the loop</span></pre>
+      </div>
+      <p>
+        Sign, log, delete, commit, then one <code>VACUUM FULL</code> on the whole partition. That
+        single statement rewrites the partition's heap file <em>and</em> rebuilds every index on
+        it, from scratch, as part of the rewrite. It's the final form of three iterations, each one
+        driven by a claim that got tested and found wrong.
+      </p>
+
+      <h4 class="sub2">Decision 1 &middot; the ivfflat index was never touched</h4>
+      <div class="decision broke">
+        <span class="tag">Gap found</span>
+        <h4>The very first version only rebuilt the HNSW index after a delete.</h4>
+        <p>
+          A self-review of the paper draft flagged that the "deletion is real" claim was weaker
+          than the write-up implied: <code>hard_delete()</code> rebuilt HNSW but never touched
+          ivfflat on the exact same column, and never ran <code>VACUUM</code> at all. ivfflat
+          stores its own copy of each vector inside its own index pages, not just a pointer into
+          the heap. Leaving it un-rebuilt meant a deleted embedding's bytes stayed physically
+          present in the ivfflat file indefinitely. This directly matched the research gap
+          <code>PROBLEM_STATEMENT.md</code> is built around, soft-delete persistence despite a
+          reported deletion, so it was a real implementation gap, not just a wording issue.
+        </p>
+        <p>
+          Fixed by adding <code>ivfflat_index</code> to <code>TENANT_CONFIG</code> and running
+          <code>REINDEX INDEX</code> on both. Verified for real, not just read through: built a
+          one-off document, called the fixed function, confirmed the row was gone from a fresh
+          <code>SELECT</code> and both indexes reported <code>indisvalid = true</code> after their
+          rebuild.
+        </p>
+      </div>
+
+      <div class="note">
+        <div class="label">A correction caught before it shipped, worth knowing the reasoning behind</div>
+        <p>
+          The first instinct was that the un-rebuilt ivfflat index meant a deleted document could
+          still show up in <em>live search results</em>. That instinct is wrong, and it's worth
+          understanding why: Postgres checks heap tuple visibility (MVCC) on every single index
+          scan, regardless of whether the index itself has been rebuilt. A stale index entry just
+          becomes a dangling pointer that gets filtered out at scan time, it can never resurrect a
+          deleted row into a query result. The real exposure is <strong>forensic, not
+          functional</strong>: the embedding's bytes stay physically present in the index pages and
+          the heap, recoverable by someone with raw page or disk access, even though no ordinary
+          SQL query would ever surface it. Getting this distinction right mattered, the stronger
+          (and false) "deleted docs could leak into search" version would have been a worse claim
+          to put in a paper than the true, narrower one.
+        </p>
+      </div>
+
+      <h3 class="sub">First, what VACUUM actually is, cold, before the decisions that depend on it</h3>
+      <p>
+        <strong>The root problem it exists to solve:</strong> when Postgres deletes a row, it
+        doesn't erase the bytes. It just flags that row as dead (flips a hidden field called
+        <code>xmax</code>) and leaves it exactly where it was. This is <strong>MVCC</strong>
+        (multi-version concurrency control): Postgres lets many transactions read the database at
+        once without blocking each other, by keeping old row versions around until it's certain no
+        transaction still in flight could need them. Erase rows the instant they're deleted, and a
+        transaction that started a moment earlier, whose snapshot of the world still includes that
+        row, would suddenly see broken data.
+      </p>
+      <p>
+        <strong>What VACUUM actually does:</strong> it's the cleanup crew. It scans the table,
+        finds rows that are dead <em>and</em> that no live transaction could possibly still need,
+        and marks that space "free, safe to write something new here." Picture a whiteboard
+        divided into fixed-size boxes: VACUUM crosses a box off a "taken" list so a new line can go
+        there later, but it doesn't scrub the box clean, the old marks are still physically visible
+        until something new actually gets written on top of them.
+      </p>
+      <div class="note">
+        <div class="label">This is the exact gap the whole project is built around</div>
+        <p>
+          "Space marked reusable" is not the same thing as "bytes overwritten." Open the raw file
+          on disk right after a plain <code>VACUUM</code>, and the deleted embedding's numbers are
+          still sitting there in plain sight, which is exactly what the 20-trial byte search in
+          <code>test_storage_erasure.py</code> proved directly, not just reasoned about.
+        </p>
+      </div>
+      <p>
+        <strong>Why it can't run inside a transaction:</strong> VACUUM has to ask "is there any
+        transaction anywhere in the database that could still need this row?", a question about
+        the whole system's state, not something that makes sense from inside one transaction's own
+        private snapshot. Postgres just refuses to let it run inside one. That's the entire reason
+        the code needs <code>conn.autocommit = True</code> after the delete has already committed,
+        shown in the final code above.
+      </p>
+
+      <h4 class="sub2">Plain VACUUM vs. VACUUM FULL, the tradeoff the whole decision history pivots on</h4>
+      <ul>
+        <li><strong>Plain <code>VACUUM</code></strong> reuses space in place. Cheap, doesn't lock anyone out of reading. But it never overwrites, so the old bytes can sit there indefinitely, until some future insert happens to land in that exact spot.</li>
+        <li><strong><code>VACUUM FULL</code></strong> does a complete rewrite, builds a brand-new file containing only the live rows, throws the old file away entirely. A real, physical guarantee the old bytes are gone, the same mechanism <code>REINDEX</code> uses for an index. The cost: an exclusive lock on the whole table while it works, and roughly double the disk space while old and new briefly coexist.</li>
+      </ul>
+      <p>
+        That cheap-but-leaky vs. complete-but-locking tradeoff is the entire reason
+        <code>hard_delete()</code> changed three times. It started on plain <code>VACUUM</code>
+        (leaky), on the assumption that was the safer default because it supposedly didn't block
+        reads, Decision 4 below is where a real concurrency test proved that assumption false, which
+        removed the only reason left to avoid the stronger option.
+      </p>
+
+      <h4 class="sub2">Decision 2 &middot; a plain <code>DELETE</code> doesn't erase bytes</h4>
+      <div class="decision broke">
+        <span class="tag">Gap found</span>
+        <h4><code>DELETE</code> only marks the heap row dead under MVCC.</h4>
+        <p>
+          Postgres doesn't overwrite a deleted row's bytes immediately, it flips a flag
+          (<code>xmax</code>) and leaves the bytes in place until <code>VACUUM</code> later marks
+          that space reusable, and even then, reusable is not the same as overwritten. <code>VACUUM</code>
+          cannot run inside a transaction block at all (a hard Postgres rule, it needs to update
+          visibility-map bits outside of any transaction's own snapshot), which is why it has to
+          be a separate, later, autocommit step, not something that can just be added to the same
+          transaction as the delete.
+        </p>
+      </div>
+
+      <h4 class="sub2">The byte-level verification methodology itself, first applied here</h4>
+      <p>
+        Up to this point, every claim about deletion had been checked by <em>asking Postgres
+        questions about itself</em>, row counts, <code>pg_stat_user_tables</code>,
+        <code>pg_index.indisvalid</code>. None of that is the same kind of evidence as actually
+        opening the file and looking. So the methodology changed: resolve the real on-disk file
+        for the heap and each index via <code>pg_relation_filepath()</code>, run
+        <code>CHECKPOINT</code> first (a raw file read can otherwise miss a page still sitting only
+        in memory), pull the real file out of the Docker container with <code>docker cp</code>, and
+        search its raw bytes in Python for the deleted embedding's exact pattern. This is, not
+        coincidentally, the same angle the prior paper this project sits next to
+        (Chakraborttii et al., cited in <code>PROBLEM_STATEMENT.md</code>) used to originally find
+        the vulnerability, turned back around to check whether the fix actually closes it.
+      </p>
+      <p>
+        Re-ran the full benchmark suite after the ivfflat + VACUUM fix, since a fix nobody
+        re-measures is just a hope. Numbers got honestly worse, the correct direction, since the
+        fix makes <code>hard_delete()</code> do strictly more real work:
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Metric</th><th>Before fix</th><th>After fix</th></tr></thead>
+          <tbody>
+            <tr><td>Single hard-delete latency</td><td>~68 ms</td><td>~97&ndash;141 ms</td></tr>
+            <tr><td>Cascading erasure, 50 docs</td><td>~4150&ndash;4400 ms</td><td>~5000&ndash;6290 ms</td></tr>
+            <tr><td>Index rebuild cost (HNSW only, 5000 docs)</td><td>~309&ndash;333 ms</td><td>~309&ndash;373 ms, unchanged</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        The HNSW-only rebuild number staying flat is a deliberate control: that benchmark only ever
+        measures HNSW rebuild in isolation, so it being unaffected confirms the slowdown elsewhere
+        really is from the new ivfflat+VACUUM work, not unrelated noise in the environment.
+      </p>
+
+      <h4 class="sub2">Decision 3 &middot; the first REINDEX fix wasn't actually reliable</h4>
+      <div class="decision broke">
+        <span class="tag">Overturned, 65% failure rate</span>
+        <h4>REINDEX was running inside the same transaction as the DELETE, before it committed.</h4>
+        <div class="figure">13 / 20</div>
+        <p>
+          Expanding the storage test to run over 20 documents (not the one document the earlier
+          spot-check used), against a real, by-then much larger tenant partition, gave a completely
+          different result than the first check had: the deleted embedding's pattern was still
+          found in HNSW and ivfflat in 13 of 20 trials, not 0.
+        </p>
+      </div>
+      <p>
+        <strong>The investigation into why, step by step, rather than just reporting whichever
+        number looked better:</strong> first ruled out a <code>docker cp</code> truncation bug, the
+        copied file's size matched the real file size inside the container exactly, byte for byte.
+        Then ruled out a corpus-generator bug, could two different documents share an embedding by
+        chance? The random generation space (names &times; IPs &times; hostnames &times;
+        second-precision timestamps over 90 days) is astronomically too large for that. Then ran
+        controlled single-document checks against the current, larger database, and found the real
+        answer: even a <strong>freshly inserted, still-alive</strong> document's own embedding was
+        sometimes not findable by this same search in its own HNSW index, on some trials and not
+        others, nothing about the test itself changed between runs.
+      </p>
+      <p>
+        That meant the search methodology itself was the unreliable part at scale, not evidence
+        about <code>REINDEX</code> one way or the other, almost certainly because HNSW's
+        graph-node page-packing doesn't always lay a vector's floats down as one contiguous run the
+        way a flat heap row does. The small early tests had looked clean purely because the index
+        was still tiny and simply laid out. So a different test was needed: not "is the pattern
+        findable", but "does <em>when</em> REINDEX runs relative to the commit matter". Built a
+        variant (<code>src/eval/test_reindex_timing_variant.py</code>) that moves REINDEX to run
+        <em>after</em> the DELETE commits instead of before, same 20-trial methodology:
+      </p>
+      <div class="decision fixed">
+        <span class="tag">Fixed, reproduced twice</span>
+        <h4>Moved REINDEX to run after commit, in the same autocommit step VACUUM already needed.</h4>
+        <div class="figure">0 / 20</div>
+        <p>
+          Confirmed twice before trusting it: once as the isolated test variant, then applied to
+          <code>hard_delete.py</code> for real and the full 20-trial check rerun directly against
+          production, not a parallel test copy. 0/20 both times. This changed the headline finding
+          from "index-level erasure can't be reliably verified at scale, an open problem" to "a
+          specific, identified, fixable bug, now fixed and reverified."
+        </p>
+      </div>
+
+      <h4 class="sub2">Decision 4 &middot; "this design doesn't block reads" was never tested</h4>
+      <div class="decision broke">
+        <span class="tag">Overturned, assumption never checked</span>
+        <h4>Assumed the three-step design (unlike a heavier alternative, VACUUM FULL) didn't block concurrent reads.</h4>
+        <div class="figure">5 / 5 trials, both designs</div>
+        <p>
+          This claim had been stated as settled fact across multiple earlier write-ups, carried
+          over from general Postgres knowledge (REINDEX is "lighter" than VACUUM FULL), never once
+          tested against this specific code. Checked it the same careful way as the REINDEX
+          investigation: first the smallest possible isolated diagnostic, a bare
+          <code>SELECT count(*)</code> running in a background thread against a bare
+          <code>REINDEX</code> call with nothing else happening, to rule out the result being an
+          artifact of the test harness rather than the database. One query overlapped the window,
+          started 12ms in, and didn't complete until the instant the lock released, with a latency
+          matching the lock duration almost exactly, the textbook signature of being blocked, not
+          merely slow. Plain <code>REINDEX INDEX</code> (not <code>CONCURRENTLY</code>) does take a
+          lock strong enough to stall an ordinary read, documented Postgres behavior that had simply
+          never been checked here before being asserted.
+        </p>
+        <p>
+          Built the full version after that: a background thread looping real
+          <code>similarity_search()</code> calls, the exact function the live <code>/search</code>
+          endpoint uses, while a deletion ran on the main thread, 5 repeats per design, the
+          measurement window narrowed to just the lock-holding statements, separated from the
+          non-blocking setup work (signing, the audit write, the bare DELETE) around them:
+        </p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th></th><th>Current design (REINDEX &times;2 + VACUUM)</th><th>VACUUM FULL</th></tr></thead>
+            <tbody>
+              <tr><td>Trials showing a blocked query</td><td>5/5</td><td>5/5</td></tr>
+              <tr><td>Mean lock-window duration</td><td>390.3 ms</td><td>402.0 ms</td></tr>
+              <tr><td>Worst blocked-query latency</td><td>376.0 ms</td><td>432.5 ms</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>
+          A concurrent search issued during the lock window doesn't error, it queues and waits,
+          then completes right as the lock releases, exactly the same signature VACUUM FULL
+          produces. Both designs block, for a similar duration. That removed the one argument that
+          had been keeping the three-step design as the assumed default.
+        </p>
+      </div>
+
+      <h4 class="sub2">Decision 5 &middot; switching to a single VACUUM FULL</h4>
+      <p>
+        With the concurrency cost already proven to be a wash, the comparison needed to be
+        completed properly rather than decided on a hunch. Timed the full end-to-end path
+        (including signing and the audit-log write, not just the bare SQL) for both designs at the
+        same corpus sizes, 3 repeats each:
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Corpus size</th><th>Current (REINDEX &times;2 + VACUUM)</th><th>DELETE + VACUUM FULL</th></tr></thead>
+          <tbody>
+            <tr><td>100</td><td>101.3 ms</td><td>105.7 ms</td></tr>
+            <tr><td>500</td><td>149.9 ms</td><td>181.5 ms</td></tr>
+            <tr><td>1000</td><td>226.7 ms</td><td>229.6 ms</td></tr>
+            <tr><td>5000</td><td>469.0 ms</td><td>498.7 ms</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Essentially tied at every size. Also repeated <code>VACUUM FULL</code>'s own cost 20 times
+        per size instead of once (cheap to do, it doesn't change row count, so no need to regrow
+        the corpus between repeats), surfacing real variance a single run would have hidden:
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Corpus size</th><th>Mean</th><th>Min</th><th>Max</th></tr></thead>
+          <tbody>
+            <tr><td>100</td><td>37.2 ms</td><td>28.3 ms</td><td>51.7 ms</td></tr>
+            <tr><td>500</td><td>85.4 ms</td><td>73.3 ms</td><td>111.1 ms</td></tr>
+            <tr><td>1000</td><td>147.1 ms</td><td>131.0 ms</td><td>169.4 ms</td></tr>
+            <tr><td>5000</td><td>475.2 ms</td><td>380.4 ms</td><td>667.1 ms</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Then closed the one remaining gap in the comparison itself: the <code>VACUUM FULL</code>
+        path's index files had never actually been byte-checked, only timed, it was an assumption
+        (VACUUM FULL rebuilds every index as a side effect of the rewrite, so it <em>should</em> be
+        clean) never verified the way the current design's fix had been. Ran the identical 20-trial
+        raw-byte-search methodology against <code>DELETE + VACUUM FULL</code> as the full path:
+      </p>
+      <div class="decision fixed">
+        <span class="tag">Shipped, verified clean across the board</span>
+        <h4>With the concurrency cost already a wash and the index-level result confirmed too, there was no reason left to keep the heap-level gap open.</h4>
+        <div class="figure">0 / 20 &mdash; heap, HNSW, and ivfflat, together</div>
+        <p>
+          Switched <code>hard_delete()</code> to a single <code>VACUUM FULL</code>, replacing the
+          three-step design. Smoke-tested one deletion first, then reran the full 20-trial check
+          against the actual, now-switched, production function, same methodology used for every
+          other result in this investigation. First point in the whole project where heap, HNSW,
+          and ivfflat all come back clean <em>together</em>, after every previous result had been
+          index-clean-but-heap-not.
+        </p>
+      </div>
+      <div class="note">
+        <div class="label">The one honest caveat that's still open, say this if asked "is this production-ready"</div>
+        <p>
+          <code>VACUUM FULL</code> needs roughly double the disk space temporarily, it writes a
+          full second copy of the table before dropping the old one. Not stress-tested at a scale
+          where that would actually matter here, but a real operational consideration for running
+          this at production volume, separate from the latency and locking costs that were
+          measured directly.
+        </p>
+      </div>
+
+      <h3 class="sub">Two more things worth knowing cold</h3>
+      <div class="note">
+        <div class="label">A one-character bug that broke a real signature</div>
+        <p>
+          The deletion certificate has to re-emit the exact <code>signed_at</code> string that was
+          originally signed. Python's default datetime formatting uses a space; the default JSON
+          encoding used by the API uses <code>T</code>. One character, and it was enough to make
+          an otherwise-valid signature fail re-verification. Fixed in
+          <code>deletion_certificate.py</code> by explicitly calling <code>str(signed_at)</code>
+          instead of letting it serialize however JSON wants to.
+        </p>
+      </div>
+      <div class="note">
+        <div class="label">One signature failed self-verification once, and never again</div>
+        <p>
+          During a 71-signature benchmark run, one signature failed its own self-check, with no
+          reproducible cause after ruling out stale keys, timestamp collisions, duplicate
+          documents. Never recurred across 142 further signatures. Rather than dismiss it, the
+          self-verification step in <code>sign_deletion()</code> (shown above) exists specifically
+          so a future recurrence fails loudly at the moment of signing, not discovered cold during
+          an audit days later.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============================================================ -->
+    <!-- LAYER 3 — DEVYANI -->
+    <!-- ============================================================ -->
+    <section class="layer" id="devyani">
+      <div class="layer-head">
+        <span class="layer-num">03</span>
+        <span class="layer-owner">Evaluation</span>
+      </div>
+      <h2>Proving it, instead of claiming it</h2>
+      <p class="intro">
+        Every number on the site traces back to a script in <code>src/eval/</code>, logged to
+        <code>docs/benchmark_results.csv</code>. The methodology that actually matters most here
+        isn't the latency numbers, it's the byte-level verification, searching the literal bytes
+        Postgres writes to disk, the same technique that exposes the soft-delete problem in the
+        first place, turned back around to check whether the fix actually works.
+      </p>
+
+      <h3 class="sub">Getting started, and the first real lesson</h3>
+      <p>
+        Environment first: Docker + pgvector, a local <code>.env</code>, a local signing keypair,
+        applied <code>src/db/schema.sql</code> against it (the ivfflat "low recall" notice from
+        Layer 1 showed up here, expected on an empty table). Built
+        <code>src/eval/generate_corpus.py</code>, the four-template synthetic incident-log
+        generator, embedded with <code>all-MiniLM-L6-v2</code>, verified with a round-trip
+        insert/fetch test before trusting it for anything else.
+      </p>
+      <p>
+        Then built <code>src/eval/run_benchmarks.py</code>, logging to a long/tidy CSV (one row per
+        measurement, a <code>metric</code> label column, so a new measurement type never needs a
+        schema change). <strong>The first full run produced misleading numbers</strong>: a crashed
+        earlier run had already grown the tenant partition to 5,000 documents, so the "corpus size"
+        labels on the rebuild-cost sweep (100/500/1000) didn't actually reflect the true index size
+        at measurement time, the script was silently measuring a 5,000-row index while labeling the
+        result "100". Fixed by adding an explicit reset step at the start of every run rather than
+        assuming a clean database, a small lesson that mattered a lot later: never trust a benchmark
+        script's own labels without checking what state it actually started from.
+      </p>
+      <p>The very first clean run's numbers, before any of the fixes below existed:</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Metric</th><th>Corpus size</th><th>Value</th></tr></thead>
+          <tbody>
+            <tr><td>Single hard-delete latency</td><td>6 docs</td><td>64.8 ms</td></tr>
+            <tr><td>Cascading erasure, 50 docs</td><td>50 docs</td><td>4765.8 ms (~95 ms/doc)</td></tr>
+            <tr><td>Index rebuild cost</td><td>5,000</td><td>870.9 ms</td></tr>
+            <tr><td>Recall@10 overlap, before/after unrelated deletes</td><td>4,980</td><td>0.995</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        That 870.9ms-at-5,000 number is the one that first surfaced the "index rebuild cost scales
+        worse than linearly" finding, 5&times; the data (1,000&rarr;5,000) cost roughly 8&times;
+        more, consistent with HNSW's own graph-insertion cost rising as the graph grows. This
+        became the numeric evidence behind "HNSW is costlier to update than it is to query," not
+        an assumption carried over from the literature.
+      </p>
+      <div class="note">
+        <div class="label">What "recall@k" actually means, since it's used constantly from here on</div>
+        <p>
+          If the true k nearest neighbors to a query are some specific set of documents, and an
+          approximate search's own top-k result shares N of those same documents, recall@k is
+          <code>N / k</code>. A score of 1.0 means the approximate index found exactly the same
+          top-k a perfect, exhaustive search would have, nothing missed. The specific number above,
+          0.995, is a narrower version of that idea: not recall against true exhaustive search (that
+          version comes later), but how much the top-10 for the same 20 queries <em>changed</em>
+          after deleting 20 unrelated documents elsewhere in the corpus, a check that deleting
+          someone's data doesn't quietly degrade search quality for everyone else.</p>
+      </div>
+      <p>
+      </p>
+
+      <h3 class="sub">Building Layer 4, the dashboard, on top of all of it</h3>
+      <p>
+        <code>src/api/main.py</code>, a thin FastAPI layer over Layers 1&ndash;3's existing
+        functions, nothing re-implemented, plus the static frontend: Overview, Search, Erasure
+        Request, Audit Trail, Benchmarks, Certificate. This is also where the one-character
+        timestamp bug and the unexplained-signature anomaly, both covered in Layer 2 above,
+        actually got found, building the certificate page is what exposed the timestamp-formatting
+        mismatch, and a 71-signature benchmark run is what surfaced the anomaly.
+      </p>
+
+      <h3 class="sub">Why so much of this is "run it 20 times" or "3 repeats," not just once</h3>
+      <p>
+        A single measurement can be influenced by things that have nothing to do with what's
+        actually being tested, which process the OS scheduled a moment earlier, whether a page
+        happened to already be cached, ordinary background noise on a shared, non-isolated
+        development laptop. One number can't tell you whether an effect is real or just that kind
+        of noise. Repeating a measurement and reporting the <em>range</em>, not just a mean, is how
+        you tell the two apart, and it's the single most repeated methodological choice across this
+        whole investigation: 20 trials for every byte-level search, 3 repeats for every scaling and
+        timing comparison, 5 repeats for the concurrency test, 20 repeats for <code>VACUUM FULL</code>
+        timing. More than once, a single-run result that looked clean turned out to be an artifact
+        once repeated (the index-residue bug below is the clearest example, a one-document test
+        showed 0%, a 20-trial test on real data showed 65%, same code, the only thing that changed
+        was sample size).
+      </p>
+
+      <h3 class="sub">How the byte-level search actually works</h3>
+      <div class="note">
+        <div class="label">A quick grounding, if Docker and raw page files aren't familiar territory</div>
+        <p>
+          Postgres here runs inside a Docker container, essentially an isolated mini-computer with
+          its own private filesystem, separate from the host machine's. Every table and index is
+          ultimately just a file inside that container's filesystem;
+          <code>pg_relation_filepath()</code> is a Postgres function that answers "where, exactly,
+          on your own internal disk, does this specific table or index actually live," and
+          <code>docker cp</code> is the command that reaches into the container and copies that
+          file back out to the host machine, where Python can open it directly, no SQL, no Postgres
+          API involved at all once the file is out, just raw bytes.
+        </p>
+      </div>
+      <ol>
+        <li>Fetch a document's real stored embedding back from Postgres after insert (not the Python list that was sent in, the one actually stored).</li>
+        <li>Pack it the way pgvector stores it on disk: a flat sequence of IEEE-754 float4s, little-endian, via <code>struct.pack(f"&lt;384f", *embedding)</code>, a distinctive 1,536-byte pattern.</li>
+        <li>Resolve the real on-disk file path for the heap partition and each index with <code>pg_relation_filepath()</code>.</li>
+        <li>Run <code>CHECKPOINT</code> to force anything sitting only in memory out to the actual file. Postgres doesn't write every change to disk the instant it happens, for performance it buffers pages in memory (<code>shared_buffers</code>) and flushes them later on its own schedule; <code>CHECKPOINT</code> forces that flush immediately, otherwise a raw file read could miss a change that's real but still only sitting in memory.</li>
+        <li>Pull the real file out of the Docker container with <code>docker cp</code>, and search its raw bytes for the pattern in Python.</li>
+      </ol>
+      <div class="note">
+        <div class="label">A real methodology lesson worth mentioning if asked</div>
+        <p>
+          This search is reliable for the heap file (100% consistent at every scale tested). It is
+          <strong>not</strong> reliable for HNSW/ivfflat index files once the index has real size,
+          a freshly-inserted, still-alive document's own embedding was sometimes not findable in
+          its own index by this same method, almost certainly because HNSW's graph-node packing
+          doesn't always lay a vector down as one contiguous run the way a heap row does. Caught by
+          running the test over 20 trials instead of one and noticing the result wasn't stable,
+          small early tests looked clean purely because the index was still tiny.
+        </p>
+      </div>
+
+      <h3 class="sub">Two more things the byte-level search turned up</h3>
+      <div class="note">
+        <div class="label">The embedding is also sitting in the write-ahead log</div>
+        <p>
+          Same <code>docker cp</code>-and-search technique, pointed at the live <code>pg_wal</code>
+          segment files instead of the heap or index files. Found: <strong>yes</strong>, the
+          deleted embedding's full pattern is findable there too. WAL is append-only and isn't
+          rewritten by <code>REINDEX</code> or <code>VACUUM</code>, so this is a real, separate
+          forensic exposure surface beyond the heap and index story, worth stating plainly as a
+          further limitation rather than leaving unexamined.
+        </p>
+      </div>
+      <div class="note">
+        <div class="label">The soft-delete baseline, and what the extra work actually buys</div>
+        <p>
+          A plain <code>DELETE</code>, no reindex, no vacuum, the same byte-search methodology run
+          against it: the pattern survives in the heap <em>and</em> both indexes afterward, every
+          time. That's the direct, measured answer to "what does all this extra work buy you",
+          two index rebuilds and a vacuum (or, now, one <code>VACUUM FULL</code>) in exchange for
+          erasure that's actually verified, instead of none at all.
+        </p>
+      </div>
+      <div class="note">
+        <div class="label">Proving verify_chain() actually catches a deleted (not just mutated) row</div>
+        <p>
+          <code>audit.html</code>'s existing "corrupt-for-demo" button mutates one stored hash in
+          place, a different failure mode from deleting a whole row outright. Built
+          <code>src/eval/test_chain_gap_detection.py</code> to test the second case. First run
+          surfaced something unexpected on its own: <code>verify_chain()</code> was already
+          returning <code>False</code> on the real audit history before the test touched anything,
+          because of a stale <code>corrupt-for-demo</code> fixture left from earlier live browser
+          testing. <code>verify_chain()</code> short-circuits on the first break it finds, so once
+          any row anywhere is broken, the whole-table boolean is <code>False</code> forever after,
+          there was no way to tell from that boolean alone whether a <em>new</em> break had just
+          happened. Worked around it by building a disposable 4-entry segment, verifying its links
+          directly rather than through the global function, then deleting the middle entry outright:
+          the entry that used to follow it now has a <code>previous_hash</code> matching no existing
+          row, exactly the failure mode <code>verify_chain()</code> is built to catch.
+          <strong>Confirmed.</strong>
+        </p>
+      </div>
+
+      <h3 class="sub">The partitioning payoff, measured properly</h3>
+      <p>
+        <strong>First pass, thin on purpose to show why it needed redoing:</strong> a disposable
+        combined table with one HNSW index spanning both tenants, REINDEX cost there at total size
+        2N against the existing per-tenant partitioned cost at size N:
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Per-tenant size (N)</th><th>Partitioned (1 tenant, N)</th><th>Unpartitioned (both, 2N)</th><th>Ratio</th></tr></thead>
+          <tbody>
+            <tr><td>100</td><td>8.7 ms</td><td>21.2 ms</td><td>2.4&times;</td></tr>
+            <tr><td>1000</td><td>108.2 ms</td><td>236.4 ms</td><td>2.2&times;</td></tr>
+            <tr><td>5000</td><td>309.3 ms</td><td>691.7 ms</td><td>2.2&times;</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        A real result, but a thin one, both tenants were exactly equal size, so a ~2&times; ratio
+        is mostly just arithmetic, doubling the rows roughly doubles the cost, it doesn't yet prove
+        partitioning specifically helped. Redone properly: one tenant held fixed at exactly 500
+        documents throughout, varying how many <em>other</em> tenants (2, 4, 8, 16) and how much
+        data surrounds it, deliberately uneven sizes (the 16-tenant config ranges 100&ndash;1,300
+        docs per other tenant, not all equal), 3 repeats per configuration for a real range instead
+        of a single run dressed up as a trend.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Tenants</th><th>Total system size</th><th>Partitioned (this tenant only)</th><th>Unpartitioned (shared index)</th><th>Ratio</th></tr></thead>
+          <tbody>
+            <tr><td>2</td><td>2,000</td><td>52.1 ms</td><td>241.1 ms</td><td>4.6&times;</td></tr>
+            <tr><td>4</td><td>3,500</td><td>57.0 ms</td><td>454.0 ms</td><td>8.0&times;</td></tr>
+            <tr><td>8</td><td>6,100</td><td>61.8 ms</td><td>473.7 ms</td><td>7.7&times;</td></tr>
+            <tr><td>16</td><td>10,000</td><td>70.9 ms</td><td>824.9 ms</td><td>11.6&times;</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        The precise claim worth getting right if asked: the <em>measured</em> ratio at 8 and 16
+        tenants sits <em>below</em> the raw row-count ratio (12.2&times; and 20&times;). The
+        unpartitioned cost tracks total system size roughly proportionally, not worse; the
+        partitioned cost stays decoupled from it entirely. That's the real claim, not "the gap
+        grows without bound."
+      </p>
+
+      <h3 class="sub">Does the ANN index actually approximate well?</h3>
+      <div class="note">
+        <div class="label">What <code>EXPLAIN</code> is, since it's the tool this entire section leans on</div>
+        <p>
+          Postgres doesn't run a query the way it's written, it first builds a plan: a tree of
+          concrete steps like "scan this index," "sort these rows," "sequentially scan this whole
+          table," then estimates the cost of each candidate plan and picks the cheapest one.
+          <code>EXPLAIN &lt;query&gt;</code> prints that chosen plan instead of running the query for
+          its results, so it's the only direct way to see whether the planner actually used the
+          ivfflat or HNSW index for a given vector search, or quietly fell back to scanning every row
+          (a <code>Seq Scan</code>), which would make a "the index is approximating well" claim
+          meaningless, since there would have been no approximation happening at all. Settings like
+          <code>enable_indexscan</code>/<code>enable_bitmapscan</code> only ask the planner to avoid
+          those plan types, they don't force it, which is exactly why the work below double-checked
+          with <code>EXPLAIN</code> rather than trusting the setting had taken effect.</p>
+      </div>
+      <p>
+        The existing <code>recall_at_k</code> metric only measured overlap of the ANN top-k
+        <em>before vs. after</em> an unrelated deletion, not recall against real ground truth. Built
+        <code>measure_recall_vs_exact()</code>: for 20 random queries, the true top-10 via a forced
+        sequential scan (<code>SET enable_indexscan = off; SET enable_bitmapscan = off</code>,
+        confirmed via <code>EXPLAIN</code> that this actually produces a <code>Seq Scan</code>, not
+        just trusting the setting took effect), compared against the planner's normal ANN path.
+        Result at corpus size 4,980: <strong>1.0 recall</strong>, ivfflat (whichever the planner
+        picked that run, also logged via <code>EXPLAIN</code> since pgvector gives no way to pin
+        one index type over the other) returned exactly the same top-10 as exhaustive search for
+        every query. Resisted the urge to oversell this: a small, synthetic, template-generated
+        corpus scoring perfectly isn't proof the index is exact in general, it's evidence this
+        corpus's embeddings are well-separated enough that approximation had no real work to do at
+        this scale.
+      </p>
+      <p>
+        That raised a real question worth actually testing rather than just caveating: <em>why</em>
+        is recall coming out perfect? The corpus (<code>src/eval/generate_corpus.py</code>) is four
+        sentence templates with randomized names/IPs/timestamps filled in. Pairwise similarity
+        across 200 documents: mean 0.431, 4.5% of all pairs exceed 0.9 similarity, max pairwise
+        similarity 0.999, near-duplicates from the same template with just a name or IP swapped.
+        Reran this independently later (0.435 vs. 0.431 the second time), close enough to trust
+        it's a real property of the corpus, not a fluke of one random sample. That long tail of
+        near-duplicate pairs is a direct, measured reason default-setting recall looked artificially
+        perfect, when a query has a cluster of near-identical neighbors, an approximate index has
+        very little room to get the top-10 wrong even approximately.
+      </p>
+      <p>
+        An explanation isn't a test, though. So a real stress test was added: two tables, each
+        pinned to <em>one</em> index type (so the index under test is actually pinned, not
+        planner-chosen the way <code>recall_vs_exact_knn</code> is), with accuracy deliberately
+        starved (<code>ivfflat.probes = 1</code> vs. a sensible default of searching more lists,
+        <code>hnsw.ef_search = 10</code> vs. a default of 40), checked against true exhaustive
+        search.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Setting</th><th>Corpus size</th><th>Recall@10 vs. exact</th></tr></thead>
+          <tbody>
+            <tr><td>ivfflat, probes=1</td><td>100</td><td class="bad">0.745</td></tr>
+            <tr><td>HNSW, ef_search=10</td><td>100</td><td class="good">1.000</td></tr>
+            <tr><td>ivfflat, probes=1</td><td>2,000</td><td class="good">1.000</td></tr>
+            <tr><td>HNSW, ef_search=10</td><td>2,000</td><td class="bad">0.900</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Real, measurable degradation under stress exists, which index "wins" isn't fixed, it
+        depends on scale and which knob gets starved. Reported both runs rather than the one that
+        told a cleaner story.
+      </p>
+
+      <h3 class="sub">The concurrency test that reversed a design decision</h3>
+      <p>
+        Covered from Layer 2's side above; the methodology detail worth knowing: a background
+        thread looped real <code>similarity_search()</code> calls while a deletion ran on the main
+        thread, 5 repeats per design, with the measurement window narrowed to <em>just</em> the
+        lock-holding statements (REINDEX/VACUUM), separated from the non-blocking setup work
+        (signing, the audit write, the bare DELETE) around them. Verified first with the smallest
+        possible isolated check, a bare <code>SELECT count(*)</code> against a bare
+        <code>VACUUM FULL</code> call, before trusting the fuller version.
+      </p>
+
+      <h3 class="sub">What's measured, end to end</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Metric</th><th>What it answers</th></tr></thead>
+          <tbody>
+            <tr><td>hard_delete_latency</td><td>One real deletion, full pipeline, current corpus size</td></tr>
+            <tr><td>cascading_erasure_latency</td><td>A real subject with 50 documents, erased end to end</td></tr>
+            <tr><td>index_rebuild_cost</td><td>HNSW-only rebuild, isolated, across corpus sizes 100&ndash;5,000</td></tr>
+            <tr><td>vacuum_full_cost</td><td>VACUUM FULL alone, 20 repeats per size, real variance captured</td></tr>
+            <tr><td>tenant_scaling (2/4/8/16)</td><td>Partitioned vs. unpartitioned rebuild, uneven sizes, 3 repeats</td></tr>
+            <tr><td>recall_vs_exact_knn / stress tests</td><td>ANN accuracy against true exhaustive search</td></tr>
+            <tr><td>storage_erasure_*</td><td>Raw byte search, heap/HNSW/ivfflat, 20 trials</td></tr>
+            <tr><td>concurrency_lock_*</td><td>Whether each design blocks a live concurrent search</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ============================================================ -->
+    <!-- LAYER 4 — THE SITE -->
+    <!-- ============================================================ -->
+    <section class="layer" id="site">
+      <div class="layer-head">
+        <span class="layer-num">04</span>
+        <span class="layer-owner">What's actually on the live site</span>
+      </div>
+      <h2>Every number, every page, where it comes from</h2>
+      <p class="intro">
+        If the teacher opens the live demo themselves, this is what they'll see and what it
+        actually proves, not just what it looks like.
+      </p>
+
+      <h3 class="sub">The three hero numbers on the landing page</h3>
+      <div class="stat-mini-row">
+        <div class="stat-mini">
+          <div class="v">0 / 20</div>
+          <div class="l">Trials where the deleted embedding's bytes were found anywhere on disk after a real deletion</div>
+          <div class="src">storage_erasure_* in benchmark_results.csv</div>
+        </div>
+        <div class="stat-mini">
+          <div class="v">126 ms</div>
+          <div class="l">One real hard-delete, current shipped design, heap and both indexes rewritten</div>
+          <div class="src">hard_delete_latency, most recent run</div>
+        </div>
+        <div class="stat-mini">
+          <div class="v">14.2&times;</div>
+          <div class="l">Cheaper to rebuild one tenant's own partition than a shared index at the same total size, 16 tenants</div>
+          <div class="src">tenant_scaling, n=16 row, see table above</div>
+        </div>
+      </div>
+
+      <h3 class="sub">The four concept cards (&ldquo;How Lethe closes it&rdquo;)</h3>
+      <p>These map directly to the layers: partitioned index (01, the schema), hash-chained audit log (02, the signing path), cascading erasure (03, <code>erase_subject()</code>), verified at the byte level (04, the storage-erasure methodology above).</p>
+
+      <h3 class="sub">The verification ledger</h3>
+      <p>
+        This is the condensed, four-entry version of Decisions 3&ndash;5 from Layer 2 above:
+        the REINDEX-in-transaction bug found and fixed (13/20 &rarr; 0/20), the concurrency myth
+        overturned (both designs block equally), and the final VACUUM FULL switch verified clean
+        across the board (0/20, heap and both indexes together). If the teacher asks "what was
+        the hardest bug," this is it, and it's the one place on the whole site that states a wrong
+        result plainly instead of hiding it.
+      </p>
+
+      <h3 class="sub">The five live pages, at a glance</h3>
+      <div class="site-grid">
+        <div class="site-card">
+          <h4>Overview <span class="path">overview.html</span></h4>
+          <p>Every subject across both tenants, consent status, document counts. The starting point, shows the data actually exists before anyone deletes anything.</p>
+        </div>
+        <div class="site-card">
+          <h4>Search <span class="path">search.html</span></h4>
+          <p>Real semantic similarity search, ranked by cosine distance, against live documents. Click a prompt chip or type your own.</p>
+        </div>
+        <div class="site-card">
+          <h4>Erasure request <span class="path">erasure.html</span></h4>
+          <p>Pick a subject, submit a real GDPR-style request, watch it cascade across every document that subject has, then get a certificate link.</p>
+        </div>
+        <div class="site-card">
+          <h4>Audit trail <span class="path">audit.html</span></h4>
+          <p>Verify one signature or the entire hash chain live. Includes a demo-only &ldquo;corrupt this entry&rdquo; button to show tamper detection actually catching something, on purpose, not a real vulnerability.</p>
+        </div>
+        <div class="site-card">
+          <h4>Benchmarks <span class="path">benchmarks.html</span></h4>
+          <p>Deletion latency, rebuild cost, and recall@k, charted straight from the real CSV, not hand-drawn numbers.</p>
+        </div>
+      </div>
+
+      <div class="note">
+        <div class="label">Before you click anything</div>
+        <p>
+          Every page has a small badge in the bottom-right corner reading either <strong>&ldquo;Live
+          backend &middot; switch&rdquo;</strong> or <strong>&ldquo;Mock data &middot; switch&rdquo;</strong>.
+          If you're demoing from the real FastAPI + Postgres server, confirm it says <em>Live
+          backend</em> before you start, point it out to the teacher once, it's the thing proving
+          none of this is a static mockup.
+        </p>
+      </div>
+
+      <h3 class="sub">The demo, click by click, in the order to actually present it</h3>
+
+      <h4 class="sub2">1 &middot; Overview <span class="path">overview.html</span></h4>
+      <p><strong>What's on screen:</strong> one table, columns <em>Subject / Tenant / Consent / Documents</em>. Each row is a real <code>data_subjects</code> row. The Consent column is a colored badge: green &ldquo;Consented&rdquo;, red &ldquo;Not consented&rdquo;, gray &ldquo;Unset&rdquo; (no <code>consent_status</code> row exists at all for that subject, a deliberately-included real state, not an oversight).</p>
+      <ol>
+        <li>Page loads, calls <code>GET /subjects</code>, renders the table immediately, no clicks needed.</li>
+      </ol>
+      <div class="note">
+        <div class="label">Say this</div>
+        <p>&ldquo;This is the real data in Postgres right now, document counts included. Nothing on this page is seeded fake numbers in the HTML, it's a live query.&rdquo;</p>
+      </div>
+
+      <h4 class="sub2">2 &middot; Search <span class="path">search.html</span></h4>
+      <p><strong>What's on screen:</strong> a tenant dropdown, a text input, a Search button, and four clickable &ldquo;prompt chip&rdquo; buttons with realistic example queries (a login-attempts one, an outbound-traffic one, an unrecognized-process one, a cloud-storage one). Results render as a table: <em>#, Similarity, Content</em>.</p>
+      <ol>
+        <li>Click a prompt chip (or type your own query) &rarr; it fills the input and fires the search automatically.</li>
+        <li>Calls <code>POST /search</code> with <code>{tenant_id, query_text, k: 10}</code>.</li>
+        <li>Similarity shown is <code>1 &minus; distance</code>, the raw cosine distance Postgres returns, formatted to 3 decimals.</li>
+      </ol>
+      <div class="note">
+        <div class="label">Say this</div>
+        <p>&ldquo;This is the actual <code>embedding &lt;=&gt; query</code> cosine-distance query, the planner picks HNSW or ivfflat on its own, we don't force one. This is also the exact function (<code>similarity_search()</code>) the concurrency test used to prove a deletion blocks a live search.&rdquo;</p>
+      </div>
+
+      <h4 class="sub2">3 &middot; Erasure request <span class="path">erasure.html</span></h4>
+      <p><strong>What's on screen:</strong> a subject dropdown (labelled &ldquo;{name} ({tenant}, {doc count} docs)&rdquo;) and a &ldquo;Submit deletion request&rdquo; button. On submit, a 5-step vertical tracker appears, each step's dot pulses gold while active and turns green when done:</p>
+      <ol>
+        <li>Deletion request submitted</li>
+        <li>Locating N document(s) for &ldquo;{name}&rdquo; across tenants</li>
+        <li>Hard-deleting each document and rebuilding its partition</li>
+        <li>Signing and hash-chaining an audit entry per deletion</li>
+        <li>Erasure complete, with a status line (&ldquo;Request {id} is now completed.&rdquo;) and a gold &ldquo;View deletion certificate &rarr;&rdquo; link</li>
+      </ol>
+      <p>Under the hood: <code>POST /deletion-requests</code>, then <code>POST /deletion-requests/{id}/process</code>, which server-side runs <code>erase_subject()</code> &rarr; <code>hard_delete()</code> per document, the exact <code>VACUUM FULL</code> path from Layer 2 above, for real, one call per document.</p>
+      <div class="note">
+        <div class="label">Say this</div>
+        <p>&ldquo;Steps 3 and 4 aren't a fake progress bar, they're the literal <code>hard_delete()</code> calls happening right now, one <code>VACUUM FULL</code> and one signed, chained audit entry per document. Go back to Overview after this and that subject's document count is zero.&rdquo;</p>
+      </div>
+
+      <h4 class="sub2">4 &middot; Deletion certificate <span class="path">certificate.html?request_id=...</span></h4>
+      <p>Reached only via the link erasure.html just gave you, not in the sidebar. <strong>What's on screen:</strong> Deletion request id, Subject id, Requested at, Completed at, then a table, one row per document actually erased: <em>Document ID / Content hash / Previous hash / Signature / Signed at</em>. A &ldquo;Print / save as PDF&rdquo; button produces an actual clean black-on-white printable version (own print stylesheet, strips the sidebar).</p>
+      <ol>
+        <li>Calls <code>GET /deletion-requests/{id}/certificate</code> &rarr; <code>get_deletion_certificate()</code>.</li>
+      </ol>
+      <div class="note">
+        <div class="label">Say this</div>
+        <p>&ldquo;Every field in this table is exactly what <code>verify_deletion()</code> needs to independently re-check the signature. This document is designed to be handed to someone outside the system, no trust in us required, they can verify it themselves.&rdquo;</p>
+      </div>
+
+      <h4 class="sub2">5 &middot; Audit trail <span class="path">audit.html</span></h4>
+      <p><strong>What's on screen, two panels.</strong> Panel one, &ldquo;The chain, visually&rdquo;: a horizontal row of blocks, one per signed deletion, connected by &rarr; arrows, each showing the first 6 characters of its hash, plus a &ldquo;Verify entire chain&rdquo; button. Panel two, &ldquo;Every entry&rdquo;: a full table with a per-row Verify button and a red &ldquo;Corrupt (demo)&rdquo; button.</p>
+      <ol>
+        <li>Click <strong>Verify entire chain</strong> &rarr; blocks light up left to right, each one pulses gold (&ldquo;checking&rdquo;, calling <code>GET /audit-log/{id}/verify</code> per block) then settles green (valid) or red (invalid). If one breaks, every block after it dims to 35% opacity, &ldquo;unreached&rdquo;, since nothing past a broken link can be trusted. Final badge: green &ldquo;chain intact&rdquo; or red &ldquo;CHAIN BROKEN&rdquo;, from <code>GET /audit-log/verify-chain</code>.</li>
+        <li>Click <strong>Verify</strong> on any single row &rarr; that row's badge and its matching chain block both update together.</li>
+        <li>Click <strong>Corrupt (demo)</strong> on any row &rarr; a confirm dialog, then <code>POST /audit-log/{id}/corrupt-for-demo</code> deliberately mutates that row's stored hash, then auto-re-verifies it live, you'll watch it flip to red INVALID on camera.</li>
+      </ol>
+      <div class="note">
+        <div class="label">Say this</div>
+        <p>&ldquo;The block colors and the row badges are driven by the exact <code>verify_signature()</code> / <code>verify_chain()</code> code from Layer 2, nothing simulated. Corrupt is the one deliberately-fake button on the entire site, it exists specifically to prove tamper detection actually works, not to fake a real vulnerability. If you want to show the full chain breaking, corrupt an entry, then click Verify entire chain and watch everything after it dim out.&rdquo;</p>
+      </div>
+
+      <h4 class="sub2">6 &middot; Benchmarks <span class="path">benchmarks.html</span></h4>
+      <p><strong>What's on screen:</strong> three Chart.js line charts, each with a plain-language sentence above it, all pulled live from <code>GET /benchmarks</code>, which just reads <code>docs/benchmark_results.csv</code>.</p>
+      <ul>
+        <li><strong>Deletion latency</strong> &mdash; two lines, single hard-delete vs. 50-document cascading erasure, across every historical run. Shows the cost is stable, not a one-off lucky number.</li>
+        <li><strong>Index rebuild cost vs. corpus size</strong> &mdash; each full run's sweep across corpus sizes plotted as its own line (deliberately not merged into one globally-sorted line, which would zigzag between different runs sharing the same x-values). Climbs faster than linearly, the HNSW-graph-insertion-cost finding.</li>
+        <li><strong>Recall@k, before vs. after deletion</strong> &mdash; stays near 1.0 across runs, meaning erasing one subject's data doesn't quietly degrade search quality for everyone else's.</li>
+      </ul>
+      <p>The three chart colors are a deliberately separate, validated palette from the green/red used for verify pass/fail elsewhere, so a chart series is never visually confused with a status.</p>
+      <div class="note">
+        <div class="label">Say this</div>
+        <p>&ldquo;Every point on these charts is a real logged run, not hand-plotted. The tenant-scaling chart with error bars on the landing page is the stronger version of this story, that one has real repeat-run variance shown, not a single smoothed line.&rdquo;</p>
+      </div>
+    </section>
+
+    <footer>
+      Built from <code>docs/LAB_NOTES.md</code>, <code>docs/benchmark_results.csv</code>, and the
+      source in <code>src/</code>, everything here traces back to a real file in the repo.
+    </footer>
+  </main>
+</div>
+</body>
+</html>
