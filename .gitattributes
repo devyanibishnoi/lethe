@@ -1,0 +1,4 @@
+# frontend/deep-dive.html is a long-form written explainer (prose, pulled from
+# docs/LAB_NOTES.md), not application code, don't let its size skew GitHub's
+# language detection away from the actual Python implementation.
+frontend/deep-dive.html linguist-documentation
